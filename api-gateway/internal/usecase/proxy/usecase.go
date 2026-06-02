@@ -4,10 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/DoMinhHHung/Rental/internal/domain/entity"
@@ -57,6 +59,19 @@ func (u *UseCase) registerRoutes() {
 }
 
 func (u *UseCase) initProxies() {
+
+	transport := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   5 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   5 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
 	seen := map[string]bool{}
 	for _, route := range u.routes {
 		if seen[route.ServiceURL] {
@@ -85,6 +100,7 @@ func (u *UseCase) initProxies() {
 		}
 
 		proxy := httputil.NewSingleHostReverseProxy(target)
+		proxy.Transport = transport
 		proxy.Director = buildDirector(target)
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, `{"error":"upstream_unavailable"}`, http.StatusBadGateway)
@@ -225,14 +241,20 @@ func jitter(minMS, maxMS int) time.Duration {
 
 type responseRecorder struct {
 	http.ResponseWriter
-	statusCode  int
-	wroteHeader bool
+	statusCode int
+	once       sync.Once
 }
 
 func (r *responseRecorder) WriteHeader(code int) {
-	if !r.wroteHeader {
+	r.once.Do(func() {
 		r.statusCode = code
-		r.wroteHeader = true
 		r.ResponseWriter.WriteHeader(code)
-	}
+	})
+}
+
+func (r *responseRecorder) Write(b []byte) (int, error) {
+	r.once.Do(func() {
+		r.statusCode = http.StatusOK
+	})
+	return r.ResponseWriter.Write(b)
 }

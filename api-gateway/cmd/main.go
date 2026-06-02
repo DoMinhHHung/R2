@@ -27,6 +27,8 @@ import (
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
 
+const maxBodyBytes = 4 << 20
+
 // @title           Rental Platform API Gateway
 // @version         1.0
 // @description     API Gateway for Rental Management Platform
@@ -77,6 +79,7 @@ func main() {
 	r := gin.New()
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestID())
+	r.Use(middleware.MaxBodySize(maxBodyBytes))
 	r.Use(middleware.Logging(appLog))
 	r.Use(met.Middleware())
 
