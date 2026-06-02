@@ -1,8 +1,8 @@
 
 routes:
   - prefix: "/api/v1/auth"
-    service: user
-    methods: ["POST"]
+    service: auth     
+    methods: ["POST", "GET", "DELETE"]
     require_auth: false
     version: "v1"
 

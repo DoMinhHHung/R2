@@ -2,26 +2,38 @@ package jwt
 
 import (
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 
 	"github.com/DoMinhHHung/R2/internal/domain/entity"
-	"github.com/golang-jwt/jwt/v5"
+	gojwt "github.com/golang-jwt/jwt/v5"
 )
 
 type Parser struct {
-	secret []byte
-	issuer string
+	publicKey any // *rsa.PublicKey
+	issuer    string
 }
 
-func NewParser(secret, issuer string) *Parser {
-	return &Parser{secret: []byte(secret), issuer: issuer}
+func NewParser(publicKeyPath, issuer string) (*Parser, error) {
+	keyBytes, err := os.ReadFile(publicKeyPath)
+	if err != nil {
+		return nil, fmt.Errorf("read public key %q: %w", publicKeyPath, err)
+	}
+
+	pubKey, err := gojwt.ParseRSAPublicKeyFromPEM(keyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("parse RSA public key: %w", err)
+	}
+
+	return &Parser{publicKey: pubKey, issuer: issuer}, nil
 }
 
-type customClaims struct {
-	UserID string   `json:"uid"`
-	Roles  []string `json:"roles"`
-	APIKey string   `json:"api_key"`
-	jwt.RegisteredClaims
+type claims struct {
+	UserID string `json:"uid"`
+	Email  string `json:"email"`
+	Role   string `json:"role"`
+	gojwt.RegisteredClaims
 }
 
 func (p *Parser) Parse(tokenStr string) (*entity.Claims, error) {
@@ -30,28 +42,24 @@ func (p *Parser) Parse(tokenStr string) (*entity.Claims, error) {
 		return nil, errors.New("empty token")
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &customClaims{}, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, errors.New("unexpected signing method")
+	token, err := gojwt.ParseWithClaims(tokenStr, &claims{}, func(t *gojwt.Token) (any, error) {
+		if _, ok := t.Method.(*gojwt.SigningMethodRSA); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-		return p.secret, nil
-	})
+		return p.publicKey, nil
+	}, gojwt.WithIssuer(p.issuer))
+
 	if err != nil {
 		return nil, err
 	}
 
-	claims, ok := token.Claims.(*customClaims)
+	c, ok := token.Claims.(*claims)
 	if !ok || !token.Valid {
 		return nil, errors.New("invalid claims")
 	}
 
-	if claims.Issuer != p.issuer {
-		return nil, errors.New("invalid issuer")
-	}
-
 	return &entity.Claims{
-		UserID: claims.UserID,
-		Roles:  claims.Roles,
-		APIKey: claims.APIKey,
+		UserID: c.UserID,
+		Roles:  []string{c.Role},
 	}, nil
 }

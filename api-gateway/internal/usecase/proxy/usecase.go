@@ -126,6 +126,7 @@ func (u *UseCase) Resolve(path string) (*entity.Route, bool) {
 
 func NewWithRules(cfg config.Config, routeRules []config.RouteRule) *UseCase {
 	serviceURLFor := map[string]string{
+		"auth":         cfg.Services.Auth,
 		"user":         cfg.Services.User,
 		"property":     cfg.Services.Property,
 		"booking":      cfg.Services.Booking,
