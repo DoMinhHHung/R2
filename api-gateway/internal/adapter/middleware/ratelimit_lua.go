@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/usecase/ratelimit"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/usecase/ratelimit"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,7 +1,7 @@
 package handler
 
 import (
-	"github.com/DoMinhHHung/Rental/internal/usecase/proxy"
+	"github.com/DoMinhHHung/R2/internal/usecase/proxy"
 	"github.com/gin-gonic/gin"
 )
 

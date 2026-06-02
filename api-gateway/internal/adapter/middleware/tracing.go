@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"

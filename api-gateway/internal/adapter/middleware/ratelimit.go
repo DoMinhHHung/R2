@@ -1,8 +1,8 @@
 package middleware
 
 import (
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"github.com/DoMinhHHung/Rental/pkg/uuidv7"
+	"github.com/DoMinhHHung/R2/pkg/uuidv7"
 	"github.com/gin-gonic/gin"
 )
 

@@ -1,7 +1,7 @@
 package logger
 
 import (
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

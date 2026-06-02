@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"

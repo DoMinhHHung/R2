@@ -9,17 +9,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/DoMinhHHung/Rental/internal/adapter/handler"
-	"github.com/DoMinhHHung/Rental/internal/adapter/middleware"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/cache"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
-	infraJWT "github.com/DoMinhHHung/Rental/internal/infrastructure/jwt"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/logger"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/metrics"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/tracer"
-	"github.com/DoMinhHHung/Rental/internal/usecase/proxy"
-	"github.com/DoMinhHHung/Rental/internal/usecase/ratelimit"
-	"github.com/DoMinhHHung/Rental/internal/usecase/rbac"
+	"github.com/DoMinhHHung/R2/internal/adapter/handler"
+	"github.com/DoMinhHHung/R2/internal/adapter/middleware"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/cache"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
+	infraJWT "github.com/DoMinhHHung/R2/internal/infrastructure/jwt"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/logger"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/metrics"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/tracer"
+	"github.com/DoMinhHHung/R2/internal/usecase/proxy"
+	"github.com/DoMinhHHung/R2/internal/usecase/ratelimit"
+	"github.com/DoMinhHHung/R2/internal/usecase/rbac"
 	"github.com/gin-gonic/gin"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gin-gonic/gin/otelgin"
 
@@ -39,13 +39,13 @@ const maxBodyBytes = 4 << 20
 // @name            Authorization
 func main() {
 	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load config: %v", err)
+	}
 
 	rules, err := config.LoadRules()
 	if err != nil {
 		log.Fatalf("load gateway rules: %v", err)
-	}
-	if err != nil {
-		log.Fatal(err)
 	}
 
 	appLog := logger.New(cfg.App.Env)

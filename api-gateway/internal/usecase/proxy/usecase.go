@@ -1,19 +1,20 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
 	"github.com/sony/gobreaker"
 )
 
@@ -154,6 +155,16 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 		return fmt.Errorf("no proxy for %s", route.ServiceURL)
 	}
 
+	originalBodyPresent := r.Body != nil
+	var requestBody []byte
+	var err error
+	if originalBodyPresent {
+		requestBody, err = io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+	}
+
 	var lastErr error
 	maxAttempts := u.cfg.Retry.MaxAttempts
 	if maxAttempts < 1 {
@@ -170,7 +181,13 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 			}
 		}
 
-		rec := &responseRecorder{ResponseWriter: w, statusCode: 200}
+		if originalBodyPresent {
+			r.Body = io.NopCloser(bytes.NewReader(requestBody))
+		} else {
+			r.Body = http.NoBody
+		}
+
+		rec := newResponseRecorder()
 
 		_, err := sp.breaker.Execute(func() (interface{}, error) {
 			sp.proxy.ServeHTTP(rec, r)
@@ -187,6 +204,10 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 		if err == gobreaker.ErrOpenState {
 			http.Error(w, `{"error":"circuit_open"}`, http.StatusServiceUnavailable)
 			return err
+		}
+
+		if flushErr := rec.FlushTo(w); flushErr != nil {
+			return flushErr
 		}
 
 		lastErr = err
@@ -240,21 +261,47 @@ func jitter(minMS, maxMS int) time.Duration {
 }
 
 type responseRecorder struct {
-	http.ResponseWriter
+	header     http.Header
+	body       bytes.Buffer
 	statusCode int
-	once       sync.Once
+	wroteHeader bool
+}
+
+func newResponseRecorder() *responseRecorder {
+	return &responseRecorder{
+		header:     make(http.Header),
+		statusCode: http.StatusOK,
+	}
+}
+
+func (r *responseRecorder) Header() http.Header {
+	return r.header
 }
 
 func (r *responseRecorder) WriteHeader(code int) {
-	r.once.Do(func() {
-		r.statusCode = code
-		r.ResponseWriter.WriteHeader(code)
-	})
+	if r.wroteHeader {
+		return
+	}
+	r.statusCode = code
+	r.wroteHeader = true
 }
 
 func (r *responseRecorder) Write(b []byte) (int, error) {
-	r.once.Do(func() {
-		r.statusCode = http.StatusOK
-	})
-	return r.ResponseWriter.Write(b)
+	if !r.wroteHeader {
+		r.WriteHeader(http.StatusOK)
+	}
+	return r.body.Write(b)
+
+}
+
+func (r *responseRecorder) FlushTo(w http.ResponseWriter) error {
+	for key, values := range r.header {
+		w.Header()[key] = append([]string(nil), values...)
+	}
+	w.WriteHeader(r.statusCode)
+	if r.body.Len() == 0 {
+		return nil
+	}
+	_, err := w.Write(r.body.Bytes())
+	return err
 }

@@ -4,10 +4,10 @@ import (
 	"context"
 	"strings"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
-	infraJWT "github.com/DoMinhHHung/Rental/internal/infrastructure/jwt"
-	proxyUC "github.com/DoMinhHHung/Rental/internal/usecase/proxy"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
+	infraJWT "github.com/DoMinhHHung/R2/internal/infrastructure/jwt"
+	proxyUC "github.com/DoMinhHHung/R2/internal/usecase/proxy"
 	"github.com/gin-gonic/gin"
 )
 

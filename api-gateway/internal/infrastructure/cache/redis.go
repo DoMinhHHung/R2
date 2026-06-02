@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
 	"github.com/redis/go-redis/v9"
 )
 

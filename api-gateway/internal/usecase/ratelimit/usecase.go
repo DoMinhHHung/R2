@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/domain/port"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/domain/port"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
 )
 
 type UseCase struct {

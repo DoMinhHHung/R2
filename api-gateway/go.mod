@@ -1,4 +1,4 @@
-module github.com/DoMinhHHung/Rental
+module github.com/DoMinhHHung/R2
 
 go 1.26.2
 

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
 	"github.com/golang-jwt/jwt/v5"
 )
 

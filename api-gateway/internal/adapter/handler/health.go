@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/cache"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/cache"
 	"github.com/gin-gonic/gin"
 )
 

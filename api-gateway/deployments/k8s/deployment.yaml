@@ -41,6 +41,13 @@ spec:
                 name: gateway-config
             - secretRef:
                 name: gateway-secret
+          env:
+            - name: GATEWAY_RULES_PATH
+              value: /etc/gateway/rules/gateway-rules.yaml
+          volumeMounts:
+            - name: gateway-rules
+              mountPath: /etc/gateway/rules
+              readOnly: true
           resources:
             requests:
               cpu: "100m"
@@ -66,3 +73,7 @@ spec:
             preStop:
               exec:
                 command: ["/bin/sh", "-c", "sleep 5"]
+      volumes:
+        - name: gateway-rules
+          configMap:
+            name: gateway-rules

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/DoMinhHHung/Rental/internal/domain/entity"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/cache"
-	"github.com/DoMinhHHung/Rental/internal/infrastructure/config"
+	"github.com/DoMinhHHung/R2/internal/domain/entity"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/cache"
+	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
 )
 
 type LuaUseCase struct {
