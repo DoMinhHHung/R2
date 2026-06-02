@@ -261,9 +261,9 @@ func jitter(minMS, maxMS int) time.Duration {
 }
 
 type responseRecorder struct {
-	header     http.Header
-	body       bytes.Buffer
-	statusCode int
+	header      http.Header
+	body        bytes.Buffer
+	statusCode  int
 	wroteHeader bool
 }
 
