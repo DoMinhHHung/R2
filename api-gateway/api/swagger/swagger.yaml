@@ -1,0 +1,138 @@
+openapi: "3.0.0"
+info:
+  title: Rental
+  version: "1.0.0"
+  description: API Gateway
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+  - url: https://api.rental.com
+    description: Production
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        detail:
+          type: string
+        request_id:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+        deps:
+          type: object
+
+paths:
+  /healthz/live:
+    get:
+      tags: [Health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /healthz/ready:
+    get:
+      tags: [Health]
+      summary: Readiness probe
+      security: []
+      responses:
+        "200":
+          description: Service ready
+        "503":
+          description: Service degraded
+
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: Đăng nhập
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                password:
+                  type: string
+      responses:
+        "200":
+          description: Login success
+        "401":
+          description: Unauthorized
+
+  /api/v1/properties:
+    get:
+      tags: [Property]
+      summary: Danh sách nhà trọ
+      security: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of properties
+
+    post:
+      tags: [Property]
+      summary: Tạo nhà trọ mới
+      security:
+        - BearerAuth: []
+      responses:
+        "201":
+          description: Created
+        "403":
+          description: Forbidden
+
+  /api/v1/bookings:
+    post:
+      tags: [Booking]
+      summary: Đặt phòng
+      security:
+        - BearerAuth: []
+      responses:
+        "201":
+          description: Booking created
+        "429":
+          description: Rate limit exceeded
+
+  /metrics:
+    get:
+      tags: [Observability]
+      summary: Prometheus metrics
+      security: []
+      responses:
+        "200":
+          description: Metrics in text format

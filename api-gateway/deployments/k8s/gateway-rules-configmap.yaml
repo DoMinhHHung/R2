@@ -1,0 +1,109 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-rules
+  namespace: rental
+data:
+  gateway-rules.yaml: |
+    routes:
+      - prefix: "/api/v1/auth"
+        service: user
+        methods: ["POST"]
+        require_auth: false
+        version: "v1"
+
+      - prefix: "/api/v1/users"
+        service: user
+        methods: ["*"]
+        require_auth: true
+        version: "v1"
+
+      - prefix: "/api/v1/properties"
+        service: property
+        methods: ["*"]
+        require_auth: false
+        version: "v1"
+
+      - prefix: "/api/v1/bookings"
+        service: booking
+        methods: ["*"]
+        require_auth: true
+        version: "v1"
+
+      - prefix: "/api/v1/payments"
+        service: payment
+        methods: ["*"]
+        require_auth: true
+        version: "v1"
+
+      - prefix: "/api/v1/notifications"
+        service: notification
+        methods: ["*"]
+        require_auth: true
+        version: "v1"
+
+    rbac_rules:
+      - service: "user"
+        method: "POST"
+        path: "/api/v1/auth/*"
+        roles: ["*"]
+
+      - service: "user"
+        method: "*"
+        path: "/api/v1/users/*"
+        roles: ["admin", "user"]
+
+      - service: "property"
+        method: "GET"
+        path: "/api/v1/properties/*"
+        roles: ["*"]
+
+      - service: "property"
+        method: "POST"
+        path: "/api/v1/properties/*"
+        roles: ["landlord", "admin"]
+
+      - service: "property"
+        method: "PUT"
+        path: "/api/v1/properties/*"
+        roles: ["landlord", "admin"]
+
+      - service: "property"
+        method: "PATCH"
+        path: "/api/v1/properties/*"
+        roles: ["landlord", "admin"]
+
+      - service: "property"
+        method: "DELETE"
+        path: "/api/v1/properties/*"
+        roles: ["admin"]
+
+      - service: "booking"
+        method: "*"
+        path: "/api/v1/bookings/*"
+        roles: ["user", "landlord", "admin"]
+
+      - service: "payment"
+        method: "*"
+        path: "/api/v1/payments/*"
+        roles: ["user", "landlord", "admin"]
+
+      - service: "notification"
+        method: "*"
+        path: "/api/v1/notifications/*"
+        roles: ["user", "landlord", "admin"]
+---
+#
+# volumes:
+#   - name: gateway-rules
+#     configMap:
+#       name: gateway-rules
+#
+# volumeMounts:
+#   - name: gateway-rules
+#     mountPath: /configs
+#     readOnly: true
+#
+# env:
+#   - name: GATEWAY_RULES_PATH
+#     value: /configs/gateway-rules.yaml
