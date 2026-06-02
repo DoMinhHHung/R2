@@ -1,8 +1,9 @@
 .PHONY: run build test migrate-up migrate-down generate-keys swagger
 
+-include .env
+
 APP_NAME=auth-service
 MIGRATION_DIR=./migrations
-DB_DSN?=$(shell grep DB_DSN .env | cut -d '=' -f2-)
 
 run:
 	go run ./cmd/server/main.go
@@ -21,9 +22,8 @@ migrate-to:
 	migrate -path $(MIGRATION_DIR) -database "$(DB_DSN)" goto $(V)
 
 generate-keys:
-	@mkdir -p keys
-	openssl genrsa -out keys/private.pem 2048
-	openssl rsa -in keys/private.pem -pubout -out keys/public.pem
+	@powershell -NoProfile -Command "New-Item -ItemType Directory -Force keys | Out-Null"
+	go run ./scripts/gen_keys.go
 	@echo "✅ RS256 key pair generated in ./keys/"
 
 swagger:
