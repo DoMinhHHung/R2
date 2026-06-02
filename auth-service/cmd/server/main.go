@@ -9,6 +9,17 @@ import (
 	"syscall"
 	"time"
 
+	cacherepo "github.com/DoMinhHHung/auth-service/internal/infrastructure/cache_repo"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/email"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/hash"
+	jwtinfra "github.com/DoMinhHHung/auth-service/internal/infrastructure/jwt"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/otp"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/repository"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/userclient"
+
+	"github.com/DoMinhHHung/auth-service/internal/adapter/handler"
+	"github.com/DoMinhHHung/auth-service/internal/adapter/router"
+	"github.com/DoMinhHHung/auth-service/internal/application/usecase"
 	"github.com/DoMinhHHung/auth-service/internal/infrastructure/cache"
 	"github.com/DoMinhHHung/auth-service/internal/infrastructure/config"
 	"github.com/DoMinhHHung/auth-service/internal/infrastructure/database"
@@ -16,14 +27,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// @title           Auth Service API
-// @version         1.0
-// @description     Authentication & Authorization Service
-// @host            localhost:8082
-// @BasePath        /api/v1/auth
-// @securityDefinitions.apikey BearerAuth
-// @in              header
-// @name            Authorization
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -31,32 +34,54 @@ func main() {
 	}
 
 	appLog := logger.New(cfg.App.Env)
-	appLog.Info("starting auth service", "env", cfg.App.Env, "port", cfg.App.Port)
 
-	// Database
 	ctx := context.Background()
+
 	db, err := database.NewPool(ctx, cfg.Database)
 	if err != nil {
 		log.Fatalf("connect database: %v", err)
 	}
 	defer db.Close()
-	appLog.Info("database connected")
 
-	// Redis
 	rdb, err := cache.NewRedisClient(cfg.Redis)
 	if err != nil {
 		log.Fatalf("connect redis: %v", err)
 	}
 	defer rdb.Close()
-	appLog.Info("redis connected")
+
+	tokenSvc, err := jwtinfra.New(cfg.JWT)
+	if err != nil {
+		log.Fatalf("init jwt service: %v", err)
+	}
+
+	authUserRepo := repository.NewAuthUserRepository(db)
+	sessionRepo := repository.NewSessionRepository(db)
+	cacheRepo := cacherepo.New(rdb)
+
+	hasher := hash.NewArgon2idHasher()
+	otpGen := otp.NewGenerator()
+	emailSvc := email.NewSMTPService(cfg.Email)
+	userClient := userclient.New(cfg.UserSvc.URL)
+
+	signupUC := usecase.NewSignupUseCase(authUserRepo, cacheRepo, hasher, otpGen, emailSvc, userClient, cfg.OTP)
+	loginUC := usecase.NewLoginUseCase(authUserRepo, sessionRepo, hasher, tokenSvc, cfg.JWT)
+	tokenUC := usecase.NewTokenUseCase(authUserRepo, sessionRepo, tokenSvc, cfg.JWT)
+	passwordUC := usecase.NewPasswordUseCase(authUserRepo, sessionRepo, cacheRepo, hasher, otpGen, emailSvc)
+	sessionUC := usecase.NewSessionUseCase(sessionRepo)
+
+	authH := handler.NewAuthHandler(signupUC, loginUC, tokenUC, passwordUC)
+	sessionH := handler.NewSessionHandler(sessionUC)
 
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
-	r := gin.New()
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(200, gin.H{"status": "ok", "service": "auth-service"})
+	r := router.New(router.Deps{
+		AuthHandler:    authH,
+		SessionHandler: sessionH,
+		TokenSvc:       tokenSvc,
+		Redis:          rdb,
+		Logger:         appLog,
 	})
 
 	srv := &http.Server{
@@ -68,7 +93,7 @@ func main() {
 	}
 
 	go func() {
-		appLog.Info("http server started", "port", cfg.App.Port)
+		appLog.Info("auth service started", "port", cfg.App.Port)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			appLog.Error("server error", "error", err)
 			os.Exit(1)
@@ -80,7 +105,7 @@ func main() {
 	<-quit
 
 	appLog.Info("shutting down gracefully...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {

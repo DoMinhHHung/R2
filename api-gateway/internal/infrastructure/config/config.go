@@ -32,8 +32,8 @@ type RedisConfig struct {
 }
 
 type JWTConfig struct {
-	Secret string
-	Issuer string
+	PublicKeyPath string
+	Issuer        string
 }
 
 type RateLimitConfig struct {
@@ -49,6 +49,7 @@ type OTELConfig struct {
 }
 
 type ServicesConfig struct {
+	Auth         string
 	User         string
 	Property     string
 	Booking      string
@@ -98,8 +99,8 @@ func Load() (*Config, error) {
 			DB:       redisDB,
 		},
 		JWT: JWTConfig{
-			Secret: os.Getenv("JWT_SECRET"),
-			Issuer: os.Getenv("JWT_ISSUER"),
+			PublicKeyPath: requireEnv("JWT_PUBLIC_KEY_PATH"),
+			Issuer:        getEnv("JWT_ISSUER", "rental-platform"),
 		},
 		RateLimit: RateLimitConfig{
 			IP:            rlIP,
@@ -112,6 +113,7 @@ func Load() (*Config, error) {
 			ServiceName: getEnv("OTEL_SERVICE_NAME", "api-gateway"),
 		},
 		Services: ServicesConfig{
+			Auth:         os.Getenv("SERVICES_AUTH"),
 			User:         os.Getenv("SERVICES_USER"),
 			Property:     os.Getenv("SERVICES_PROPERTY"),
 			Booking:      os.Getenv("SERVICES_BOOKING"),
@@ -137,4 +139,12 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func requireEnv(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		panic("required environment variable " + key + " is not set")
+	}
+	return v
 }

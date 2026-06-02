@@ -66,7 +66,10 @@ func main() {
 	}
 
 	met := metrics.New(cfg.OTEL.ServiceName)
-	jwtParser := infraJWT.NewParser(cfg.JWT.Secret, cfg.JWT.Issuer)
+	jwtParser, err := infraJWT.NewParser(cfg.JWT.PublicKeyPath, cfg.JWT.Issuer)
+	if err != nil {
+		log.Fatalf("init jwt parser: %v", err)
+	}
 	rbacUC := rbac.New(rules.RBACRules)
 	proxyUC := proxy.NewWithRules(*cfg, rules.Routes)
 	proxyHandler := handler.NewProxy(proxyUC)
