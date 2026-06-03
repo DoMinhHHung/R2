@@ -69,8 +69,12 @@ func main() {
 	passwordUC := usecase.NewPasswordUseCase(authUserRepo, sessionRepo, cacheRepo, hasher, otpGen, emailSvc)
 	sessionUC := usecase.NewSessionUseCase(sessionRepo)
 
+	adminLoginUC := usecase.NewAdminLoginUseCase(authUserRepo, sessionRepo, hasher, tokenSvc, cfg.JWT)
+	adminUC := usecase.NewAdminUseCase(authUserRepo, hasher)
+
 	authH := handler.NewAuthHandler(signupUC, loginUC, tokenUC, passwordUC)
 	sessionH := handler.NewSessionHandler(sessionUC)
+	adminH := handler.NewAdminHandler(adminLoginUC, adminUC)
 
 	if cfg.App.Env == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -79,6 +83,7 @@ func main() {
 	r := router.New(router.Deps{
 		AuthHandler:    authH,
 		SessionHandler: sessionH,
+		AdminHandler:   adminH,
 		TokenSvc:       tokenSvc,
 		Redis:          rdb,
 		Logger:         appLog,

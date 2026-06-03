@@ -18,6 +18,7 @@ import (
 type Deps struct {
 	AuthHandler    *handler.AuthHandler
 	SessionHandler *handler.SessionHandler
+	AdminHandler   *handler.AdminHandler
 	TokenSvc       port.TokenService
 	Redis          *cache.RedisClient
 	Logger         *logger.Logger
@@ -67,6 +68,21 @@ func New(deps Deps) *gin.Engine {
 			protected.POST("/logout/all", deps.SessionHandler.LogoutAll)
 			protected.GET("/sessions", deps.SessionHandler.GetActiveSessions)
 			protected.DELETE("/sessions/:id", deps.SessionHandler.RevokeSession)
+		}
+
+		admin := auth.Group("/admin")
+		{
+			rl3p5m := middleware.RateLimit(deps.Redis, "admin-login", 3, 5*time.Minute)
+			admin.POST("/login", rl3p5m, deps.AdminHandler.Login)
+
+			adminProtected := admin.Group("")
+			adminProtected.Use(
+				middleware.RequireAuth(deps.TokenSvc),
+				middleware.RequireAdmin(),
+			)
+			{
+				adminProtected.POST("/users", deps.AdminHandler.CreateAdmin)
+			}
 		}
 	}
 

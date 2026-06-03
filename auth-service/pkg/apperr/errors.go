@@ -40,4 +40,5 @@ var (
 	ErrTokenInvalid       = New("TOKEN_INVALID", "Token is invalid", http.StatusUnauthorized)
 	ErrResetTokenInvalid  = New("RESET_TOKEN_INVALID", "Reset token is invalid or expired", http.StatusBadRequest)
 	ErrInternal           = New("INTERNAL_ERROR", "An internal error occurred", http.StatusInternalServerError)
+	ErrForbidden          = New("FORBIDDEN", "You don't have permission to perform this action", http.StatusForbidden)
 )

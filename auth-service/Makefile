@@ -38,3 +38,10 @@ test-coverage:
 install-tools:
 	go install github.com/swaggo/swag/cmd/swag@latest
 	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+seed-admin:
+	@if [ -z "$(EMAIL)" ] || [ -z "$(PASSWORD)" ]; then \
+		echo "Usage: make seed-admin EMAIL=admin@admin.com PASSWORD=YourPass123!"; \
+		exit 1; \
+	fi
+	go run scripts/seed_admin/main.go -email $(EMAIL) -password "$(PASSWORD)"
