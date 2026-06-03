@@ -61,7 +61,7 @@ func main() {
 	hasher := hash.NewArgon2idHasher()
 	otpGen := otp.NewGenerator()
 	emailSvc := email.NewSMTPService(cfg.Email)
-	userClient := userclient.New(cfg.UserSvc.URL)
+	userClient := userclient.New(cfg.UserSvc.URL, cfg.UserSvc.InternalToken)
 
 	signupUC := usecase.NewSignupUseCase(authUserRepo, cacheRepo, hasher, otpGen, emailSvc, userClient, cfg.OTP)
 	loginUC := usecase.NewLoginUseCase(authUserRepo, sessionRepo, hasher, tokenSvc, cfg.JWT)

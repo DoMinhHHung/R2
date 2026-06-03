@@ -24,13 +24,9 @@ func (u *UseCase) Allow(ctx context.Context, key entity.RateLimitKey) (bool, err
 	window := time.Duration(u.cfg.WindowSeconds) * time.Second
 	redisKey := fmt.Sprintf("rl:%s:%s", key.Type, key.Value)
 
-	count, err := u.cache.Incr(ctx, redisKey)
+	count, err := u.cache.IncrWithExpire(ctx, redisKey, window)
 	if err != nil {
 		return true, nil
-	}
-
-	if count == 1 {
-		u.cache.Expire(ctx, redisKey, window)
 	}
 
 	return count <= int64(limit), nil

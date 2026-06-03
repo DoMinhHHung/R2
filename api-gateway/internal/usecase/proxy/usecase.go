@@ -156,21 +156,22 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 		return fmt.Errorf("no proxy for %s", route.ServiceURL)
 	}
 
-	originalBodyPresent := r.Body != nil
 	var requestBody []byte
-	var err error
-	if originalBodyPresent {
+	if r.Body != nil {
+		var err error
 		requestBody, err = io.ReadAll(r.Body)
 		if err != nil {
 			return err
 		}
 	}
 
-	var lastErr error
 	maxAttempts := u.cfg.Retry.MaxAttempts
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
+
+	var lastRec *responseRecorder
+	var lastErr error
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
@@ -182,7 +183,7 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 			}
 		}
 
-		if originalBodyPresent {
+		if requestBody != nil {
 			r.Body = io.NopCloser(bytes.NewReader(requestBody))
 		} else {
 			r.Body = http.NoBody
@@ -199,7 +200,7 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 		})
 
 		if err == nil {
-			return nil
+			return rec.FlushTo(w)
 		}
 
 		if err == gobreaker.ErrOpenState {
@@ -207,13 +208,15 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 			return err
 		}
 
-		if flushErr := rec.FlushTo(w); flushErr != nil {
-			return flushErr
-		}
-
+		lastRec = rec
 		lastErr = err
 	}
 
+	if lastRec != nil {
+		if flushErr := lastRec.FlushTo(w); flushErr != nil {
+			return flushErr
+		}
+	}
 	return lastErr
 }
 

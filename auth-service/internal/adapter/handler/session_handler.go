@@ -67,7 +67,7 @@ func (h *SessionHandler) GetActiveSessions(c *gin.Context) {
 // @Security     BearerAuth
 // @Param        id path string true "Session ID"
 // @Success      200 {object} response.Response
-// @Router       /auth/sessions/{id}/revoke [delete]
+// @Router       /auth/sessions/{id} [delete]
 func (h *SessionHandler) RevokeSession(c *gin.Context) {
 	userID := getUserID(c)
 	sessionID := c.Param("id")

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -86,6 +87,11 @@ func Load() (*Config, error) {
 	rlKey, _ := strconv.Atoi(os.Getenv("RATE_LIMIT_API_KEY"))
 	rlWindow, _ := strconv.Atoi(os.Getenv("RATE_LIMIT_WINDOW_SECONDS"))
 
+	jwtPublicKeyPath, err := requireEnv("JWT_PUBLIC_KEY_PATH")
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		App: AppConfig{
 			Env:     getEnv("APP_ENV", "development"),
@@ -99,7 +105,7 @@ func Load() (*Config, error) {
 			DB:       redisDB,
 		},
 		JWT: JWTConfig{
-			PublicKeyPath: requireEnv("JWT_PUBLIC_KEY_PATH"),
+			PublicKeyPath: jwtPublicKeyPath,
 			Issuer:        getEnv("JWT_ISSUER", "rental-platform"),
 		},
 		RateLimit: RateLimitConfig{
@@ -141,10 +147,10 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func requireEnv(key string) string {
+func requireEnv(key string) (string, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		panic("required environment variable " + key + " is not set")
+		return "", fmt.Errorf("required environment variable %q is not set", key)
 	}
-	return v
+	return v, nil
 }
