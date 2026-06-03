@@ -45,6 +45,14 @@ func (m *mockCache) TTL(_ context.Context, _ string) (time.Duration, error) {
 	return 0, nil
 }
 
+func (m *mockCache) IncrWithExpire(_ context.Context, key string, _ time.Duration) (int64, error) {
+	if m.incrErr != nil {
+		return 0, m.incrErr
+	}
+	m.counts[key]++
+	return m.counts[key], nil
+}
+
 func defaultRLConfig() config.RateLimitConfig {
 	return config.RateLimitConfig{
 		IP:            5,

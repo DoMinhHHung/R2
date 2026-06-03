@@ -82,6 +82,11 @@ func Load() (*Config, error) {
 	otpMaxRetry, _ := strconv.Atoi(getEnv("OTP_MAX_RETRY", "5"))
 	otpTTL, _ := strconv.Atoi(getEnv("OTP_TTL_MINUTES", "5"))
 
+	userSvcInternalToken, err := requireEnv("USER_SERVICE_INTERNAL_TOKEN")
+	if err != nil {
+		return nil, err
+	}
+
 	dbDSN, err := requireEnv("DB_DSN")
 	if err != nil {
 		return nil, err
@@ -134,7 +139,8 @@ func Load() (*Config, error) {
 			From:     getEnv("SMTP_FROM", os.Getenv("SMTP_USERNAME")),
 		},
 		UserSvc: UserServiceConfig{
-			URL: getEnv("USER_SERVICE_URL", "http://localhost:8083"),
+			URL:           getEnv("USER_SERVICE_URL", "http://localhost:8083"),
+			InternalToken: userSvcInternalToken,
 		},
 		OTP: OTPConfig{
 			MaxRetry:   otpMaxRetry,
