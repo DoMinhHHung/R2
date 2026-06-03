@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -97,31 +98,9 @@ func (m *Metrics) Handler() gin.HandlerFunc {
 }
 
 func resolveServiceLabel(path string) string {
-	if len(path) < 9 {
-		return "unknown"
-	}
-	parts := splitPath(path)
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
 	if len(parts) >= 3 {
 		return parts[2]
 	}
 	return "unknown"
-}
-
-func splitPath(path string) []string {
-	result := []string{}
-	current := ""
-	for _, c := range path {
-		if c == '/' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		result = append(result, current)
-	}
-	return result
 }

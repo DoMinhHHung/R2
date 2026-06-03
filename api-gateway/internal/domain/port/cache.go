@@ -11,4 +11,5 @@ type Cache interface {
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key string, value string, ttl time.Duration) error
 	TTL(ctx context.Context, key string) (time.Duration, error)
+	IncrWithExpire(ctx context.Context, key string, ttl time.Duration) (int64, error)
 }

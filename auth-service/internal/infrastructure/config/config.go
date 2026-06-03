@@ -54,7 +54,8 @@ type EmailConfig struct {
 }
 
 type UserServiceConfig struct {
-	URL string
+	URL           string
+	InternalToken string
 }
 
 type OTPConfig struct {
@@ -81,6 +82,27 @@ func Load() (*Config, error) {
 	otpMaxRetry, _ := strconv.Atoi(getEnv("OTP_MAX_RETRY", "5"))
 	otpTTL, _ := strconv.Atoi(getEnv("OTP_TTL_MINUTES", "5"))
 
+	dbDSN, err := requireEnv("DB_DSN")
+	if err != nil {
+		return nil, err
+	}
+	jwtPrivateKeyPath, err := requireEnv("JWT_PRIVATE_KEY_PATH")
+	if err != nil {
+		return nil, err
+	}
+	jwtPublicKeyPath, err := requireEnv("JWT_PUBLIC_KEY_PATH")
+	if err != nil {
+		return nil, err
+	}
+	smtpUsername, err := requireEnv("SMTP_USERNAME")
+	if err != nil {
+		return nil, err
+	}
+	smtpPassword, err := requireEnv("SMTP_PASSWORD")
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		App: AppConfig{
 			Env:  getEnv("APP_ENV", "development"),
@@ -88,7 +110,7 @@ func Load() (*Config, error) {
 			Name: getEnv("APP_NAME", "auth-service"),
 		},
 		Database: DatabaseConfig{
-			DSN:          requireEnv("DB_DSN"),
+			DSN:          dbDSN,
 			MaxOpenConns: dbMaxOpen,
 			MaxIdleConns: dbMaxIdle,
 		},
@@ -98,8 +120,8 @@ func Load() (*Config, error) {
 			DB:       redisDB,
 		},
 		JWT: JWTConfig{
-			PrivateKeyPath:  requireEnv("JWT_PRIVATE_KEY_PATH"),
-			PublicKeyPath:   requireEnv("JWT_PUBLIC_KEY_PATH"),
+			PrivateKeyPath:  jwtPrivateKeyPath,
+			PublicKeyPath:   jwtPublicKeyPath,
 			AccessTokenExp:  accessExp,
 			RefreshTokenExp: refreshExp,
 			Issuer:          getEnv("JWT_ISSUER", "rental-platform"),
@@ -107,8 +129,8 @@ func Load() (*Config, error) {
 		Email: EmailConfig{
 			Host:     getEnv("SMTP_HOST", "smtp.gmail.com"),
 			Port:     smtpPort,
-			Username: requireEnv("SMTP_USERNAME"),
-			Password: requireEnv("SMTP_PASSWORD"),
+			Username: smtpUsername,
+			Password: smtpPassword,
 			From:     getEnv("SMTP_FROM", os.Getenv("SMTP_USERNAME")),
 		},
 		UserSvc: UserServiceConfig{
@@ -130,10 +152,10 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func requireEnv(key string) string {
+func requireEnv(key string) (string, error) {
 	v := os.Getenv(key)
 	if v == "" {
-		panic(fmt.Sprintf("required environment variable %q is not set", key))
+		return "", fmt.Errorf("required environment variable %q is not set", key)
 	}
-	return v
+	return v, nil
 }

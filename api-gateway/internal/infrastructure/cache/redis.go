@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/DoMinhHHung/R2/internal/infrastructure/config"
@@ -47,4 +48,16 @@ func (r *RedisCache) TTL(ctx context.Context, key string) (time.Duration, error)
 
 func (r *RedisCache) Ping(ctx context.Context) error {
 	return r.client.Ping(ctx).Err()
+}
+
+func (r *RedisCache) IncrWithExpire(ctx context.Context, key string, ttl time.Duration) (int64, error) {
+	pipe := r.client.TxPipeline()
+	incrCmd := pipe.Incr(ctx, key)
+	pipe.Expire(ctx, key, ttl)
+
+	if _, err := pipe.Exec(ctx); err != nil {
+		return 0, fmt.Errorf("redis IncrWithExpire pipeline: %w", err)
+	}
+
+	return incrCmd.Val(), nil
 }
