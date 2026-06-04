@@ -85,8 +85,23 @@ func RBAC(checker port.RBACChecker) gin.HandlerFunc {
 
 func resolveService(path string) string {
 	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) >= 3 {
-		return parts[2]
+	if len(parts) < 3 {
+		return ""
 	}
-	return ""
+	// Normalize plural → singular để khớp với service name trong rbac_rules
+	segment := parts[2]
+	switch segment {
+	case "users":
+		return "user"
+	case "properties":
+		return "property"
+	case "bookings":
+		return "booking"
+	case "payments":
+		return "payment"
+	case "notifications":
+		return "notification"
+	default:
+		return segment
+	}
 }

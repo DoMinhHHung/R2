@@ -1,11 +1,12 @@
 package router
 
 import (
+	"crypto/subtle"
+
 	"github.com/DoMinhHHung/user-service/internal/config"
 	"github.com/DoMinhHHung/user-service/internal/handler"
 	"github.com/DoMinhHHung/user-service/internal/logger"
 	"github.com/DoMinhHHung/user-service/internal/middleware"
-	"github.com/DoMinhHHung/user-service/pkg/response"
 	"github.com/gin-gonic/gin"
 
 	swaggerFiles "github.com/swaggo/files"
@@ -63,8 +64,10 @@ func New(deps Deps) *gin.Engine {
 }
 
 func internalAuth(token string) gin.HandlerFunc {
+	tokenBytes := []byte(token)
 	return func(c *gin.Context) {
-		if c.GetHeader("X-Internal-Token") != token {
+		provided := []byte(c.GetHeader("X-Internal-Token"))
+		if subtle.ConstantTimeCompare(provided, tokenBytes) != 1 {
 			c.AbortWithStatusJSON(403, gin.H{
 				"success": false,
 				"code":    "FORBIDDEN",

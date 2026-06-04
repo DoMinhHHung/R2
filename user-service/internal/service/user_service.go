@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"mime/multipart"
 	"time"
@@ -9,6 +10,7 @@ import (
 	"github.com/DoMinhHHung/user-service/internal/domain/entity"
 	"github.com/DoMinhHHung/user-service/internal/domain/port"
 	"github.com/DoMinhHHung/user-service/internal/dto"
+	rediscache "github.com/DoMinhHHung/user-service/internal/infrastructure/redis"
 	"github.com/DoMinhHHung/user-service/internal/logger"
 	"github.com/DoMinhHHung/user-service/internal/mapper"
 	"github.com/DoMinhHHung/user-service/pkg/apperr"
@@ -18,11 +20,19 @@ type UserService struct {
 	repo    port.UserRepository
 	storage port.Storage
 	log     *logger.Logger
+	cache   *rediscache.Cache
 }
 
-func New(repo port.UserRepository, storage port.Storage, log *logger.Logger) *UserService {
-	return &UserService{repo: repo, storage: storage, log: log}
+func New(repo port.UserRepository, storage port.Storage, log *logger.Logger, cache *rediscache.Cache) *UserService {
+	return &UserService{
+		repo:    repo,
+		storage: storage,
+		log:     log,
+		cache:   cache,
+	}
 }
+
+// ─── Internal / Event ─────────────────────────────────────────────────────────
 
 func (s *UserService) CreateUserFromEvent(ctx context.Context, userID, email string, role entity.UserRole) error {
 	exists, err := s.repo.ExistsByID(ctx, userID)
@@ -52,17 +62,40 @@ func (s *UserService) CreateUserFromEvent(ctx context.Context, userID, email str
 	return nil
 }
 
+// ─── User ─────────────────────────────────────────────────────────────────────
+
 func (s *UserService) GetMyProfile(ctx context.Context, userID string) (*dto.UserResponse, error) {
+	// Cache read
+	if s.cache != nil {
+		if b, err := s.cache.GetUserProfile(ctx, userID); err == nil && b != nil {
+			var resp dto.UserResponse
+			if jsonErr := json.Unmarshal(b, &resp); jsonErr == nil {
+				return &resp, nil
+			}
+		}
+	}
+
 	user, err := s.repo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-
 	if err := s.checkActive(user); err != nil {
 		return nil, err
 	}
 
-	return mapper.ToUserResponse(user), nil
+	resp := mapper.ToUserResponse(user)
+
+	if s.cache != nil {
+		go func() {
+			cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := s.cache.SetUserProfile(cacheCtx, userID, resp); err != nil {
+				s.log.Warn("cache set profile failed", "user_id", userID, "error", err)
+			}
+		}()
+	}
+
+	return resp, nil
 }
 
 func (s *UserService) UpdateMyProfile(ctx context.Context, userID string, req *dto.UpdateProfileRequest) (*dto.UserResponse, error) {
@@ -83,18 +116,18 @@ func (s *UserService) UpdateMyProfile(ctx context.Context, userID string, req *d
 	user.PhoneNumber = req.PhoneNumber
 	user.Gender = entity.UserGender(req.Gender)
 	user.DateOfBirth = &dob
-
 	user.ProfileCompleted = user.IsProfileComplete()
+	user.UpdatedAt = time.Now()
 
 	if err := s.repo.Update(ctx, user); err != nil {
 		return nil, err
 	}
 
-	updated, err := s.repo.FindByID(ctx, userID)
-	if err != nil {
-		return nil, err
+	if s.cache != nil {
+		s.cache.InvalidateUserProfile(ctx, userID)
 	}
-	return mapper.ToUserResponse(updated), nil
+
+	return mapper.ToUserResponse(user), nil
 }
 
 func (s *UserService) GetUserByID(ctx context.Context, id string) (*dto.UserResponse, error) {
@@ -105,6 +138,7 @@ func (s *UserService) GetUserByID(ctx context.Context, id string) (*dto.UserResp
 	if user.Status == entity.StatusBanned || user.Status == entity.StatusDeleted {
 		return nil, apperr.ErrUserNotFound
 	}
+
 	resp := mapper.ToUserResponse(user)
 	resp.PhoneNumber = ""
 	resp.Email = ""
@@ -127,7 +161,8 @@ func (s *UserService) UploadAvatar(
 
 	if user.AvatarPublicID != "" {
 		if err := s.storage.Delete(ctx, user.AvatarPublicID); err != nil {
-			s.log.Warn("failed to delete old avatar, continuing", "public_id", user.AvatarPublicID, "error", err)
+			s.log.Warn("failed to delete old avatar, continuing upload",
+				"public_id", user.AvatarPublicID, "error", err)
 		}
 	}
 
@@ -141,11 +176,13 @@ func (s *UserService) UploadAvatar(
 		return nil, err
 	}
 
-	updated, err := s.repo.FindByID(ctx, userID)
-	if err != nil {
-		return nil, err
+	if s.cache != nil {
+		s.cache.InvalidateUserProfile(ctx, userID)
 	}
-	return mapper.ToUserResponse(updated), nil
+
+	user.AvatarURL = result.URL
+	user.AvatarPublicID = result.PublicID
+	return mapper.ToUserResponse(user), nil
 }
 
 func (s *UserService) DeleteAvatar(ctx context.Context, userID string) error {
@@ -161,10 +198,19 @@ func (s *UserService) DeleteAvatar(ctx context.Context, userID string) error {
 	}
 
 	if err := s.storage.Delete(ctx, user.AvatarPublicID); err != nil {
-		s.log.Error("failed to delete from cloudinary", "public_id", user.AvatarPublicID, "error", err)
+		s.log.Error("failed to delete from cloudinary",
+			"public_id", user.AvatarPublicID, "error", err)
 	}
 
-	return s.repo.DeleteAvatar(ctx, userID)
+	if err := s.repo.DeleteAvatar(ctx, userID); err != nil {
+		return err
+	}
+
+	if s.cache != nil {
+		s.cache.InvalidateUserProfile(ctx, userID)
+	}
+
+	return nil
 }
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
@@ -196,8 +242,17 @@ func (s *UserService) BanUser(ctx context.Context, targetID, adminID string) err
 	if user.Status == entity.StatusBanned {
 		return apperr.New("ALREADY_BANNED", "User is already banned", 400)
 	}
+
 	s.log.Info("banning user", "target_id", targetID, "admin_id", adminID)
-	return s.repo.UpdateStatus(ctx, targetID, entity.StatusBanned)
+
+	if err := s.repo.UpdateStatus(ctx, targetID, entity.StatusBanned); err != nil {
+		return err
+	}
+
+	if s.cache != nil {
+		s.cache.InvalidateUserProfile(ctx, targetID)
+	}
+	return nil
 }
 
 func (s *UserService) UnbanUser(ctx context.Context, targetID string) error {
@@ -208,7 +263,15 @@ func (s *UserService) UnbanUser(ctx context.Context, targetID string) error {
 	if user.Status != entity.StatusBanned {
 		return apperr.New("NOT_BANNED", "User is not banned", 400)
 	}
-	return s.repo.UpdateStatus(ctx, targetID, entity.StatusActive)
+
+	if err := s.repo.UpdateStatus(ctx, targetID, entity.StatusActive); err != nil {
+		return err
+	}
+
+	if s.cache != nil {
+		s.cache.InvalidateUserProfile(ctx, targetID)
+	}
+	return nil
 }
 
 func (s *UserService) checkActive(u *entity.User) error {

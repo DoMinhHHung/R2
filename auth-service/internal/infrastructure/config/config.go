@@ -139,7 +139,7 @@ func Load() (*Config, error) {
 			From:     getEnv("SMTP_FROM", os.Getenv("SMTP_USERNAME")),
 		},
 		UserSvc: UserServiceConfig{
-			URL:           getEnv("USER_SERVICE_URL", "http://localhost:8083"),
+			URL:           getEnv("USER_SERVICE_URL", "http://localhost:8082"),
 			InternalToken: userSvcInternalToken,
 		},
 		OTP: OTPConfig{

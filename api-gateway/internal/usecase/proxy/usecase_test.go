@@ -207,7 +207,7 @@ func TestServiceNameFromURL(t *testing.T) {
 		rawURL string
 		want   string
 	}{
-		{"http://user-service:8081", "user-service"},
+		{"http://user-service:8082", "user-service"},
 		{"http://localhost:9999", "localhost"},
 		{"http://booking-service:8083/api", "booking-service"},
 		{"", ""},

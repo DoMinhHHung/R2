@@ -13,6 +13,7 @@ import (
 	"github.com/DoMinhHHung/user-service/pkg/apperr"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 type userRepo struct{ db *postgres.Pool }
@@ -23,10 +24,10 @@ func New(db *postgres.Pool) port.UserRepository {
 
 func (r *userRepo) Create(ctx context.Context, u *entity.User) error {
 	_, err := r.db.Q(ctx).Exec(ctx, `
-        INSERT INTO users (id, email, profile_completed, status, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (id) DO NOTHING
-    `, u.ID, u.Email, false, string(entity.StatusActive), u.CreatedAt, u.UpdatedAt)
+		INSERT INTO users (id, email, profile_completed, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		ON CONFLICT (id) DO NOTHING
+	`, u.ID, u.Email, false, string(entity.StatusActive), u.CreatedAt, u.UpdatedAt)
 	if err != nil {
 		if isUniqueViolation(err) {
 			return apperr.ErrUserAlreadyExists
@@ -34,7 +35,6 @@ func (r *userRepo) Create(ctx context.Context, u *entity.User) error {
 		return fmt.Errorf("create user: %w", err)
 	}
 
-	// Thêm role mặc định
 	for _, role := range u.Roles {
 		if err := r.AddRole(ctx, u.ID, role); err != nil {
 			return fmt.Errorf("add role %s: %w", role, err)
@@ -45,16 +45,17 @@ func (r *userRepo) Create(ctx context.Context, u *entity.User) error {
 
 func (r *userRepo) FindByID(ctx context.Context, id string) (*entity.User, error) {
 	var u entity.User
-	var gender, status pgx.NullableValue[string]
+	var gender pgtype.Text
+	var status pgtype.Text
 	var dob *time.Time
 
 	err := r.db.Q(ctx).QueryRow(ctx, `
-        SELECT id, email, COALESCE(full_name,''), COALESCE(phone_number,''),
-               gender, date_of_birth, COALESCE(avatar_url,''),
-               COALESCE(avatar_public_id,''), profile_completed, status,
-               created_at, updated_at
-        FROM users WHERE id = $1 AND status != 'DELETED'
-    `, id).Scan(
+		SELECT id, email, COALESCE(full_name,''), COALESCE(phone_number,''),
+		       gender, date_of_birth, COALESCE(avatar_url,''),
+		       COALESCE(avatar_public_id,''), profile_completed, status,
+		       created_at, updated_at
+		FROM users WHERE id = $1 AND status != 'DELETED'
+	`, id).Scan(
 		&u.ID, &u.Email, &u.FullName, &u.PhoneNumber,
 		&gender, &dob,
 		&u.AvatarURL, &u.AvatarPublicID,
@@ -69,10 +70,10 @@ func (r *userRepo) FindByID(ctx context.Context, id string) (*entity.User, error
 	}
 
 	if gender.Valid {
-		u.Gender = entity.UserGender(gender.Value)
+		u.Gender = entity.UserGender(gender.String)
 	}
 	if status.Valid {
-		u.Status = entity.UserStatus(status.Value)
+		u.Status = entity.UserStatus(status.String)
 	}
 	u.DateOfBirth = dob
 
@@ -81,7 +82,6 @@ func (r *userRepo) FindByID(ctx context.Context, id string) (*entity.User, error
 		return nil, err
 	}
 	u.Roles = roles
-
 	return &u, nil
 }
 
@@ -101,11 +101,15 @@ func (r *userRepo) FindByEmail(ctx context.Context, email string) (*entity.User,
 
 func (r *userRepo) Update(ctx context.Context, u *entity.User) error {
 	tag, err := r.db.Q(ctx).Exec(ctx, `
-        UPDATE users SET
-            full_name = $1, phone_number = $2, gender = $3,
-            date_of_birth = $4, profile_completed = $5
-        WHERE id = $6 AND status = 'ACTIVE'
-    `,
+		UPDATE users SET
+			full_name        = $1,
+			phone_number     = $2,
+			gender           = $3,
+			date_of_birth    = $4,
+			profile_completed = $5,
+			updated_at       = NOW()
+		WHERE id = $6 AND status = 'ACTIVE'
+	`,
 		nullStr(u.FullName), nullStr(u.PhoneNumber),
 		nullStr(string(u.Gender)), u.DateOfBirth,
 		u.ProfileCompleted, u.ID,
@@ -124,9 +128,9 @@ func (r *userRepo) Update(ctx context.Context, u *entity.User) error {
 
 func (r *userRepo) UpdateAvatar(ctx context.Context, userID, avatarURL, publicID string) error {
 	tag, err := r.db.Q(ctx).Exec(ctx, `
-        UPDATE users SET avatar_url = $1, avatar_public_id = $2
-        WHERE id = $3 AND status = 'ACTIVE'
-    `, avatarURL, publicID, userID)
+		UPDATE users SET avatar_url = $1, avatar_public_id = $2, updated_at = NOW()
+		WHERE id = $3 AND status = 'ACTIVE'
+	`, avatarURL, publicID, userID)
 	if err != nil {
 		return fmt.Errorf("update avatar: %w", err)
 	}
@@ -138,9 +142,9 @@ func (r *userRepo) UpdateAvatar(ctx context.Context, userID, avatarURL, publicID
 
 func (r *userRepo) DeleteAvatar(ctx context.Context, userID string) error {
 	tag, err := r.db.Q(ctx).Exec(ctx, `
-        UPDATE users SET avatar_url = NULL, avatar_public_id = NULL
-        WHERE id = $1 AND status = 'ACTIVE'
-    `, userID)
+		UPDATE users SET avatar_url = NULL, avatar_public_id = NULL, updated_at = NOW()
+		WHERE id = $1 AND status = 'ACTIVE'
+	`, userID)
 	if err != nil {
 		return fmt.Errorf("delete avatar: %w", err)
 	}
@@ -152,7 +156,8 @@ func (r *userRepo) DeleteAvatar(ctx context.Context, userID string) error {
 
 func (r *userRepo) UpdateStatus(ctx context.Context, userID string, status entity.UserStatus) error {
 	tag, err := r.db.Q(ctx).Exec(ctx,
-		`UPDATE users SET status = $1 WHERE id = $2`, string(status), userID,
+		`UPDATE users SET status = $1, updated_at = NOW() WHERE id = $2`,
+		string(status), userID,
 	)
 	if err != nil {
 		return fmt.Errorf("update status: %w", err)
@@ -189,25 +194,28 @@ func (r *userRepo) ListUsers(ctx context.Context, f port.UserFilter) ([]*entity.
 	whereClause := "WHERE " + strings.Join(where, " AND ")
 
 	var total int64
-	err := r.db.Q(ctx).QueryRow(ctx,
+	if err := r.db.Q(ctx).QueryRow(ctx,
 		`SELECT COUNT(*) FROM users u `+whereClause, args...,
-	).Scan(&total)
-	if err != nil {
+	).Scan(&total); err != nil {
 		return nil, 0, fmt.Errorf("count users: %w", err)
 	}
 
+	if total == 0 {
+		return []*entity.User{}, 0, nil
+	}
+
 	offset := (f.Page - 1) * f.Limit
-	args = append(args, f.Limit, offset)
+	queryArgs := append(args, f.Limit, offset)
 
 	rows, err := r.db.Q(ctx).Query(ctx, `
-        SELECT u.id, u.email, COALESCE(u.full_name,''), COALESCE(u.phone_number,''),
-               u.gender, u.date_of_birth, COALESCE(u.avatar_url,''),
-               u.profile_completed, u.status, u.created_at, u.updated_at
-        FROM users u
-        `+whereClause+`
-        ORDER BY u.created_at DESC
-        LIMIT $`+fmt.Sprint(i)+` OFFSET $`+fmt.Sprint(i+1),
-		args...,
+		SELECT u.id, u.email, COALESCE(u.full_name,''), COALESCE(u.phone_number,''),
+		       u.gender, u.date_of_birth, COALESCE(u.avatar_url,''),
+		       u.profile_completed, u.status, u.created_at, u.updated_at
+		FROM users u
+		`+whereClause+`
+		ORDER BY u.created_at DESC
+		LIMIT $`+fmt.Sprint(i)+` OFFSET $`+fmt.Sprint(i+1),
+		queryArgs...,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("list users: %w", err)
@@ -217,31 +225,45 @@ func (r *userRepo) ListUsers(ctx context.Context, f port.UserFilter) ([]*entity.
 	var users []*entity.User
 	for rows.Next() {
 		var u entity.User
-		var gender, status pgx.NullableValue[string]
+		var gender, status pgtype.Text
 		var dob *time.Time
 		if err := rows.Scan(
 			&u.ID, &u.Email, &u.FullName, &u.PhoneNumber,
 			&gender, &dob, &u.AvatarURL,
 			&u.ProfileCompleted, &status, &u.CreatedAt, &u.UpdatedAt,
 		); err != nil {
-			return nil, 0, err
+			return nil, 0, fmt.Errorf("scan user row: %w", err)
 		}
 		if gender.Valid {
-			u.Gender = entity.UserGender(gender.Value)
+			u.Gender = entity.UserGender(gender.String)
 		}
 		if status.Valid {
-			u.Status = entity.UserStatus(status.Value)
+			u.Status = entity.UserStatus(status.String)
 		}
 		u.DateOfBirth = dob
 		users = append(users, &u)
 	}
-	if rows.Err() != nil {
-		return nil, 0, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("rows error: %w", err)
 	}
 
+	if len(users) == 0 {
+		return users, total, nil
+	}
+
+	userIDs := make([]string, len(users))
+	for i, u := range users {
+		userIDs[i] = u.ID
+	}
+	rolesMap, err := r.loadRolesBatch(ctx, userIDs)
+	if err != nil {
+		return nil, 0, err
+	}
 	for _, u := range users {
-		roles, _ := r.loadRoles(ctx, u.ID)
-		u.Roles = roles
+		u.Roles = rolesMap[u.ID]
+		if u.Roles == nil {
+			u.Roles = []entity.UserRole{}
+		}
 	}
 
 	return users, total, nil
@@ -249,10 +271,10 @@ func (r *userRepo) ListUsers(ctx context.Context, f port.UserFilter) ([]*entity.
 
 func (r *userRepo) AddRole(ctx context.Context, userID string, role entity.UserRole) error {
 	_, err := r.db.Q(ctx).Exec(ctx, `
-        INSERT INTO user_roles (user_id, role)
-        VALUES ($1, $2)
-        ON CONFLICT (user_id, role) DO NOTHING
-    `, userID, string(role))
+		INSERT INTO user_roles (user_id, role)
+		VALUES ($1, $2)
+		ON CONFLICT (user_id, role) DO NOTHING
+	`, userID, string(role))
 	return err
 }
 
@@ -275,13 +297,38 @@ func (r *userRepo) loadRoles(ctx context.Context, userID string) ([]entity.UserR
 
 	var roles []entity.UserRole
 	for rows.Next() {
-		var r string
-		if err := rows.Scan(&r); err != nil {
+		var role string
+		if err := rows.Scan(&role); err != nil {
 			return nil, err
 		}
-		roles = append(roles, entity.UserRole(r))
+		roles = append(roles, entity.UserRole(role))
 	}
 	return roles, rows.Err()
+}
+
+func (r *userRepo) loadRolesBatch(ctx context.Context, userIDs []string) (map[string][]entity.UserRole, error) {
+	if len(userIDs) == 0 {
+		return map[string][]entity.UserRole{}, nil
+	}
+
+	rows, err := r.db.Q(ctx).Query(ctx,
+		`SELECT user_id, role FROM user_roles WHERE user_id = ANY($1) ORDER BY granted_at`,
+		userIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load roles batch: %w", err)
+	}
+	defer rows.Close()
+
+	result := make(map[string][]entity.UserRole, len(userIDs))
+	for rows.Next() {
+		var userID, role string
+		if err := rows.Scan(&userID, &role); err != nil {
+			return nil, fmt.Errorf("scan role row: %w", err)
+		}
+		result[userID] = append(result[userID], entity.UserRole(role))
+	}
+	return result, rows.Err()
 }
 
 func isUniqueViolation(err error) bool {

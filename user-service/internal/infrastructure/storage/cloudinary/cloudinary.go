@@ -12,6 +12,7 @@ import (
 	"github.com/DoMinhHHung/user-service/internal/domain/port"
 	"github.com/DoMinhHHung/user-service/pkg/apperr"
 	cld "github.com/cloudinary/cloudinary-go/v2"
+	"github.com/cloudinary/cloudinary-go/v2/api"
 	"github.com/cloudinary/cloudinary-go/v2/api/uploader"
 )
 
@@ -79,8 +80,8 @@ func (s *cloudinaryStorage) Upload(
 	result, err := s.client.Upload.Upload(ctx, file, uploader.UploadParams{
 		Folder:         folder,
 		ResourceType:   "image",
-		UniqueFilename: cld.Bool(true),
-		Overwrite:      cld.Bool(false),
+		UniqueFilename: api.Bool(true),
+		Overwrite:      api.Bool(false),
 		Transformation: "c_fill,w_400,h_400,q_auto,f_auto",
 	})
 	if err != nil {

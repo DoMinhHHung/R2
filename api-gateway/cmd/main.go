@@ -81,6 +81,7 @@ func main() {
 
 	r := gin.New()
 	r.Use(gin.Recovery())
+	r.Use(middleware.SecurityHeaders())
 	r.Use(middleware.RequestID())
 	r.Use(middleware.MaxBodySize(maxBodyBytes))
 	r.Use(middleware.Logging(appLog))

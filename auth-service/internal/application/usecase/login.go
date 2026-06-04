@@ -9,6 +9,7 @@ import (
 	"github.com/DoMinhHHung/auth-service/internal/domain/entity"
 	"github.com/DoMinhHHung/auth-service/internal/domain/port"
 	"github.com/DoMinhHHung/auth-service/internal/infrastructure/config"
+	"github.com/DoMinhHHung/auth-service/internal/infrastructure/logger"
 	jwtinfra "github.com/DoMinhHHung/auth-service/internal/infrastructure/jwt"
 	"github.com/DoMinhHHung/auth-service/pkg/apperr"
 	"github.com/DoMinhHHung/auth-service/pkg/uuidv7"
@@ -21,6 +22,7 @@ type LoginUseCase struct {
 	hasher       port.PasswordHasher
 	tokenSvc     port.TokenService
 	jwtCfg       config.JWTConfig
+	log          *logger.Logger
 }
 
 func NewLoginUseCase(
@@ -29,6 +31,7 @@ func NewLoginUseCase(
 	hasher port.PasswordHasher,
 	tokenSvc port.TokenService,
 	jwtCfg config.JWTConfig,
+	log *logger.Logger,
 ) *LoginUseCase {
 	return &LoginUseCase{
 		authUserRepo: authUserRepo,
@@ -36,6 +39,7 @@ func NewLoginUseCase(
 		hasher:       hasher,
 		tokenSvc:     tokenSvc,
 		jwtCfg:       jwtCfg,
+		log:          log,
 	}
 }
 
@@ -52,6 +56,7 @@ func (uc *LoginUseCase) Login(ctx context.Context, req *dto.LoginRequest, lctx L
 			uc.hasher.Verify("dummy", "$argon2id$v=19$m=65536,t=3,p=2$dummysalt$dummyhash")
 			return nil, apperr.ErrInvalidCredentials
 		}
+		uc.log.Error("login: find user by email failed", "email", req.Email, "error", err)
 		return nil, apperr.ErrInternal
 	}
 
@@ -80,11 +85,13 @@ func (uc *LoginUseCase) Login(ctx context.Context, req *dto.LoginRequest, lctx L
 
 	accessToken, err := uc.tokenSvc.GenerateAccessToken(user, sessionID)
 	if err != nil {
+		uc.log.Error("login: generate access token failed", "user_id", user.ID, "error", err)
 		return nil, apperr.ErrInternal
 	}
 
 	refreshToken, err := uc.tokenSvc.GenerateRefreshToken(user, sessionID)
 	if err != nil {
+		uc.log.Error("login: generate refresh token failed", "user_id", user.ID, "error", err)
 		return nil, apperr.ErrInternal
 	}
 
@@ -106,6 +113,7 @@ func (uc *LoginUseCase) Login(ctx context.Context, req *dto.LoginRequest, lctx L
 	}
 
 	if err := uc.sessionRepo.Create(ctx, session); err != nil {
+		uc.log.Error("login: create session failed", "user_id", user.ID, "ip", lctx.IPAddress, "error", err)
 		return nil, apperr.ErrInternal
 	}
 

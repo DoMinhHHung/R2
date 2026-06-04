@@ -1,0 +1,2063 @@
+{
+  "info": {
+    "_postman_id": "r2-rental-platform-collection",
+    "name": "R2 Rental Platform",
+    "description": "Complete API collection for R2 Rental Platform.\n\n## Setup\n1. Import collection này vào Postman\n2. Tạo Environment mới với các biến:\n   - `base_url`: `http://localhost:8080` (API Gateway)\n   - `auth_base_url`: `http://localhost:8081` (Auth Service direct)\n   - `access_token`: (để trống, tự động set sau login)\n   - `refresh_token`: (để trống, tự động set sau login)\n   - `session_id`: (để trống)\n3. Chạy lần lượt theo flow: Signup → Verify OTP → Login → (test các route protected)\n\n## Ports\n- API Gateway: `:8080`\n- Auth Service: `:8081` (direct)\n\n## Auth Flow\n```\nPOST /signup  →  email nhận OTP\nPOST /signup/verify  →  tạo account\nPOST /login  →  nhận access_token + refresh_token\n```",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "API Gateway URL"
+    },
+    {
+      "key": "auth_base_url",
+      "value": "http://localhost:8081",
+      "type": "string",
+      "description": "Auth Service direct URL"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "refresh_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reset_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "test_email",
+      "value": "test@example.com",
+      "type": "string"
+    },
+    {
+      "key": "test_password",
+      "value": "Password123!",
+      "type": "string"
+    },
+    {
+      "key": "admin_email",
+      "value": "admin@r2.com",
+      "type": "string"
+    },
+    {
+      "key": "admin_password",
+      "value": "AdminPassword123!",
+      "type": "string"
+    },
+    {
+      "key": "admin_access_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user_id",
+      "value": "",
+      "type": "string",
+      "description": "User ID - tự động set sau khi gọi GET /users/me"
+    }
+  ],
+  "item": [
+    {
+      "name": "🏥 Health Check",
+      "description": "Kiểm tra trạng thái các service",
+      "item": [
+        {
+          "name": "API Gateway - Liveness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/healthz",
+              "host": ["{{base_url}}"],
+              "path": ["healthz"]
+            },
+            "description": "Kiểm tra API Gateway còn sống không"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Status ok', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.status).to.eql('ok');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "API Gateway - Readiness",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/readyz",
+              "host": ["{{base_url}}"],
+              "path": ["readyz"]
+            },
+            "description": "Kiểm tra API Gateway + các dependency (Redis) ready chưa"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 or 503', () => {",
+                  "    pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                  "});",
+                  "pm.test('Has deps field', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json).to.have.property('deps');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Auth Service - Health (Direct)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{auth_base_url}}/healthz",
+              "host": ["{{auth_base_url}}"],
+              "path": ["healthz"]
+            },
+            "description": "Kiểm tra Auth Service trực tiếp (port 8081)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Service is auth-service', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.service).to.eql('auth-service');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📝 Signup Flow",
+      "description": "Luồng đăng ký tài khoản:\n1. Initiate Signup → nhận OTP qua email\n2. Verify OTP → tạo tài khoản\n\nRole hợp lệ: TENANT hoặc LANDLORD",
+      "item": [
+        {
+          "name": "1. Initiate Signup (TENANT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\",\n    \"password\": \"{{test_password}}\",\n    \"role\": \"TENANT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Bước 1: Bắt đầu đăng ký. Server sẽ gửi OTP 6 số vào email.\n\n**Rate limit**: 5 requests/phút\n\n**Validation**:\n- email: required, valid email, max 255 chars\n- password: required, min 8, max 72 chars\n- role: phải là TENANT hoặc LANDLORD"
+          },
+          "response": [
+            {
+              "name": "Success - OTP Sent",
+              "originalRequest": {
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"TENANT\"\n}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"OTP sent to your email. Valid for 5 minutes.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Email Already Exists",
+              "originalRequest": {
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n    \"email\": \"existing@example.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"TENANT\"\n}"
+                }
+              },
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"email already exists\",\n    \"code\": \"CONFLICT\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Success true', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('OTP');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "1b. Initiate Signup (LANDLORD)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"landlord@example.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"LANDLORD\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Đăng ký tài khoản LANDLORD (chủ nhà cho thuê)"
+          },
+          "response": []
+        },
+        {
+          "name": "2. Verify Signup OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\",\n    \"otp\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup", "verify"]
+            },
+            "description": "Bước 2: Xác minh OTP nhận được qua email để hoàn tất tạo tài khoản.\n\n**Rate limit**: 5 requests/phút\n\n**Validation**:\n- email: required, valid email\n- otp: required, đúng 6 ký tự số\n\n**OTP có hiệu lực**: 5 phút"
+          },
+          "response": [
+            {
+              "name": "Success - Account Created",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Account created successfully. Please login.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - OTP Expired",
+              "status": "Gone",
+              "code": 410,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"OTP expired\",\n    \"code\": \"OTP_EXPIRED\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Account created', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('created');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "3. Resend Signup OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/resend",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup", "resend"]
+            },
+            "description": "Gửi lại OTP đăng ký nếu chưa nhận được hoặc OTP hết hạn.\n\n**Rate limit**: 3 requests/phút (chặt hơn để chống spam)"
+          },
+          "response": [
+            {
+              "name": "Success - OTP Resent",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"New OTP sent.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('OTP resent', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔐 Login & Token",
+      "description": "Đăng nhập và quản lý token",
+      "item": [
+        {
+          "name": "Login (TENANT/LANDLORD)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\",\n    \"password\": \"{{test_password}}\",\n    \"device_name\": \"Postman Test Client\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Đăng nhập tài khoản TENANT hoặc LANDLORD.\n\n**Rate limit**: 10 requests/phút\n\n**Validation**:\n- email: required, valid email\n- password: required\n- device_name: optional (hiển thị trong danh sách session)\n\n**Response**: access_token (15 phút) + refresh_token (168h = 7 ngày)"
+          },
+          "response": [
+            {
+              "name": "Success - Tokens Returned",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"refresh_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 900\n    },\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Wrong Password",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"invalid credentials\",\n    \"code\": \"UNAUTHORIZED\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "    pm.collectionVariables.set('access_token', json.data.access_token);",
+                  "    pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+                  "    console.log('✅ Tokens saved to collection variables');",
+                  "    console.log('access_token expires_in:', json.data.expires_in, 'seconds');",
+                  "}",
+                  "",
+                  "pm.test('Has access_token', () => {",
+                  "    pm.expect(json.data).to.have.property('access_token');",
+                  "    pm.expect(json.data.token_type).to.eql('Bearer');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Access Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"refresh_token\": \"{{refresh_token}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/refresh",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "refresh"]
+            },
+            "description": "Lấy access_token mới khi access_token cũ hết hạn (15 phút).\n\n**Rate limit**: 20 requests/phút\n\n**Lưu ý**: Dùng refresh_token (7 ngày) để đổi lấy access_token mới (15 phút)"
+          },
+          "response": [
+            {
+              "name": "Success - New Tokens",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"refresh_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 900\n    },\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "    pm.collectionVariables.set('access_token', json.data.access_token);",
+                  "    pm.collectionVariables.set('refresh_token', json.data.refresh_token);",
+                  "    console.log('✅ Tokens refreshed and saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔑 Password Recovery",
+      "description": "Luồng quên mật khẩu:\n1. Forgot Password → nhận OTP qua email\n2. Verify Recovery OTP → nhận reset_token\n3. Reset Password → đặt mật khẩu mới",
+      "item": [
+        {
+          "name": "1. Forgot Password (Request OTP)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "forgot-password"]
+            },
+            "description": "Yêu cầu đặt lại mật khẩu. Server gửi OTP vào email.\n\n**Rate limit**: 3 requests/phút\n\n**Bảo mật**: Luôn trả về 200 dù email có tồn tại hay không (Email Enumeration Protection)"
+          },
+          "response": [
+            {
+              "name": "Success (Always 200)",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"If your email is registered, you will receive an OTP shortly.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200 (always)', () => pm.response.to.have.status(200));",
+                  "pm.test('Response hides email existence', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.message).to.include('If your email');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "2. Resend Forgot Password OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password/resend",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "forgot-password", "resend"]
+            },
+            "description": "Gửi lại OTP recovery. Hoạt động giống hệt /forgot-password.\n\n**Rate limit**: 3 requests/phút"
+          },
+          "response": []
+        },
+        {
+          "name": "3. Verify Recovery OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\",\n    \"otp\": \"123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/forgot-password/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "forgot-password", "verify"]
+            },
+            "description": "Xác minh OTP recovery, nhận về reset_token để đặt lại mật khẩu.\n\n**Rate limit**: 3 requests/phút\n\n**Response**: `reset_token` (short-lived, dùng 1 lần)"
+          },
+          "response": [
+            {
+              "name": "Success - Reset Token",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"reset_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\"\n    },\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data && json.data.reset_token) {",
+                  "    pm.collectionVariables.set('reset_token', json.data.reset_token);",
+                  "    console.log('✅ reset_token saved');",
+                  "}",
+                  "",
+                  "pm.test('Has reset_token', () => {",
+                  "    pm.expect(json.data).to.have.property('reset_token');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "4. Reset Password",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"reset_token\": \"{{reset_token}}\",\n    \"new_password\": \"NewPassword456!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/reset-password",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "reset-password"]
+            },
+            "description": "Đặt lại mật khẩu mới dùng reset_token.\n\n**Rate limit**: 5 requests/phút\n\n**Validation**:\n- reset_token: required (lấy từ bước Verify Recovery OTP)\n- new_password: required, min 8, max 72 chars"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Password reset successfully.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Password reset', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('reset successfully');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🖥️ Session Management",
+      "description": "Quản lý phiên đăng nhập. **Yêu cầu**: Bearer Token trong Authorization header.\n\nToken tự động lấy từ biến `{{access_token}}` sau khi Login.",
+      "item": [
+        {
+          "name": "Get Active Sessions",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sessions"]
+            },
+            "description": "Lấy danh sách tất cả session đang active của user hiện tại.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Response**: Danh sách sessions với thông tin device, IP, last activity"
+          },
+          "response": [
+            {
+              "name": "Success - Sessions List",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": [\n        {\n            \"id\": \"session-uuid-here\",\n            \"device_name\": \"Postman Test Client\",\n            \"device_type\": \"desktop\",\n            \"browser\": \"PostmanRuntime\",\n            \"os\": \"windows\",\n            \"ip_address\": \"127.0.0.1\",\n            \"last_activity\": \"2026-06-04T10:00:00Z\",\n            \"expires_at\": \"2026-06-11T10:00:00Z\",\n            \"created_at\": \"2026-06-04T10:00:00Z\"\n        }\n    ],\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data && json.data.length > 0) {",
+                  "    pm.collectionVariables.set('session_id', json.data[0].id);",
+                  "    console.log('✅ session_id saved:', json.data[0].id);",
+                  "}",
+                  "",
+                  "pm.test('Returns array', () => {",
+                  "    pm.expect(json.data).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke Specific Session",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sessions/{{session_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sessions", "{{session_id}}"]
+            },
+            "description": "Thu hồi (đăng xuất) một session cụ thể theo ID.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Tips**: Chạy \"Get Active Sessions\" trước để lấy session_id, sau đó test endpoint này.\n\n**Use case**: User muốn đăng xuất một device cụ thể từ xa"
+          },
+          "response": [
+            {
+              "name": "Success - Session Revoked",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Session revoked.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Session revoked', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('revoked');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout (Current Session)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "logout"]
+            },
+            "description": "Đăng xuất session hiện tại (session được xác định từ access_token).\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Lưu ý**: Sau khi logout, access_token hiện tại sẽ không còn hợp lệ"
+          },
+          "response": [
+            {
+              "name": "Success - Logged Out",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Logged out successfully.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Logged out', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('Logged out');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout All Devices",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/logout/all",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "logout", "all"]
+            },
+            "description": "Đăng xuất khỏi TẤT CẢ thiết bị đang đăng nhập.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Use case**: Tài khoản bị xâm phạm, muốn đăng xuất hết tất cả session"
+          },
+          "response": [
+            {
+              "name": "Success - All Logged Out",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Logged out from all devices.\",\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('All sessions logged out', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('all devices');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "👑 Admin",
+      "description": "Các endpoint dành riêng cho Admin.\n\n**Flow**:\n1. Admin Login → nhận admin_access_token\n2. Dùng admin_access_token để tạo admin mới\n\n**Bảo mật**:\n- Rate limit login: 3 requests / 5 phút (rất chặt)\n- Phải có role ADMIN mới dùng được protected admin endpoints",
+      "item": [
+        {
+          "name": "Admin Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{admin_email}}\",\n    \"password\": \"{{admin_password}}\",\n    \"device_name\": \"Admin Panel\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/admin/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "admin", "login"]
+            },
+            "description": "Đăng nhập dành riêng cho Admin.\n\n**Rate limit**: 3 requests / 5 phút (rất nghiêm)\n\n**Bảo mật**: Dùng cùng error message cho \"sai mật khẩu\" và \"không phải admin\" để tránh role enumeration\n\n**Validation**:\n- email: required, valid email\n- password: required\n- device_name: optional"
+          },
+          "response": [
+            {
+              "name": "Success - Admin Tokens",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"access_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"refresh_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...\",\n        \"token_type\": \"Bearer\",\n        \"expires_in\": 900\n    },\n    \"code\": \"OK\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Not Admin or Wrong Password",
+              "status": "Unauthorized",
+              "code": 401,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"invalid credentials\",\n    \"code\": \"UNAUTHORIZED\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Rate Limit Exceeded",
+              "status": "Too Many Requests",
+              "code": 429,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"rate limit exceeded\",\n    \"code\": \"RATE_LIMIT_EXCEEDED\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "    pm.collectionVariables.set('admin_access_token', json.data.access_token);",
+                  "    console.log('✅ admin_access_token saved');",
+                  "}",
+                  "",
+                  "pm.test('Has admin access token', () => {",
+                  "    pm.expect(json.data).to.have.property('access_token');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create Admin Account",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"newadmin@r2.com\",\n    \"password\": \"SuperSecureAdminPass123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "admin", "users"]
+            },
+            "description": "Tạo tài khoản admin mới. Chỉ admin đang active mới được tạo admin khác. Không cần OTP.\n\n**Yêu cầu auth**: ✅ Bearer Token (admin_access_token)\n**Yêu cầu role**: ADMIN\n\n**Validation**:\n- email: required, valid email, max 255 chars\n- password: required, **min 12** (admin cần password dài hơn), max 72 chars\n\n**Response**: 201 Created"
+          },
+          "response": [
+            {
+              "name": "Success - Admin Created",
+              "status": "Created",
+              "code": 201,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"message\": \"Admin account created successfully\"\n    },\n    \"code\": \"CREATED\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Not Admin (403)",
+              "status": "Forbidden",
+              "code": 403,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"forbidden: admin role required\",\n    \"code\": \"FORBIDDEN\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Email Already Exists (409)",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"email already exists\",\n    \"code\": \"CONFLICT\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 201', () => pm.response.to.have.status(201));",
+                  "pm.test('Admin created', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "⚠️ Error Cases & Edge Cases",
+      "description": "Các test case kiểm tra validation và error handling",
+      "item": [
+        {
+          "name": "Signup - Missing Fields",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Test: Thiếu password và role → VALIDATION_ERROR"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Validation error', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Signup - Invalid Role",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"Password123!\",\n    \"role\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Test: Role ADMIN không được phép dùng endpoint signup thông thường → VALIDATION_ERROR"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Role validation failed', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Signup - Password Too Short",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"short\",\n    \"role\": \"TENANT\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup"]
+            },
+            "description": "Test: Password ngắn hơn 8 ký tự → VALIDATION_ERROR"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Password validation failed', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login - Invalid Credentials",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"test@example.com\",\n    \"password\": \"WrongPassword!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "login"]
+            },
+            "description": "Test: Sai mật khẩu → 401 Unauthorized"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('Unauthorized error', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Protected Route - No Token",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sessions"]
+            },
+            "description": "Test: Truy cập route cần auth mà không có token → 401 Unauthorized"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('Unauthorized', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Protected Route - Invalid Token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer this.is.not.a.valid.jwt.token"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/sessions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "sessions"]
+            },
+            "description": "Test: Dùng JWT token giả/hỏng → 401 Unauthorized"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 401', () => pm.response.to.have.status(401));",
+                  "pm.test('Invalid token rejected', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Route - User Token (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"another@example.com\",\n    \"password\": \"SuperSecurePass123!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "admin", "users"]
+            },
+            "description": "Test: TENANT/LANDLORD cố tạo admin → 403 Forbidden"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 403', () => pm.response.to.have.status(403));",
+                  "pm.test('Forbidden', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "OTP - Invalid Format (not 6 digits)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"{{test_email}}\",\n    \"otp\": \"123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/signup/verify",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "signup", "verify"]
+            },
+            "description": "Test: OTP không đúng 6 ký tự số → VALIDATION_ERROR"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('OTP validation failed', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Admin Create - Password Too Short (<12)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"email\": \"newadmin@r2.com\",\n    \"password\": \"Short1!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/auth/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "auth", "admin", "users"]
+            },
+            "description": "Test: Admin password phải tối thiểu 12 ký tự (khác user thường chỉ 8) → VALIDATION_ERROR"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 400', () => pm.response.to.have.status(400));",
+                  "pm.test('Password too short for admin', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.false;",
+                  "    pm.expect(json.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "👤 User Profile",
+      "description": "Quản lý thông tin cá nhân của user.\n\n**Base URL**: `{{base_url}}/api/v1/users`\n**User Service Port**: `:8082` (direct)\n\n**Yêu cầu**: Bearer Token (access_token sau khi Login)\n\n**Flow hoàn chỉnh**:\n1. Login → lấy access_token\n2. GET /me → xem profile hiện tại\n3. PUT /me → cập nhật thông tin\n4. POST /avatar → upload ảnh đại diện\n5. DELETE /avatar → xóa ảnh đại diện",
+      "item": [
+        {
+          "name": "Get My Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "me"]
+            },
+            "description": "Lấy profile đầy đủ của user đang đăng nhập.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Response fields**:\n- `id`: UUID của user\n- `email`: email đăng ký\n- `full_name`: tên đầy đủ\n- `phone_number`: số điện thoại\n- `gender`: MALE | FEMALE | OTHER\n- `date_of_birth`: ngày sinh (YYYY-MM-DD)\n- `avatar_url`: URL ảnh đại diện\n- `profile_completed`: true nếu đã điền đủ thông tin\n- `roles`: danh sách vai trò"
+          },
+          "response": [
+            {
+              "name": "Success - Profile Data",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n        \"email\": \"test@example.com\",\n        \"full_name\": \"\",\n        \"phone_number\": \"\",\n        \"gender\": \"\",\n        \"date_of_birth\": null,\n        \"avatar_url\": \"\",\n        \"profile_completed\": false,\n        \"roles\": [\"TENANT\"],\n        \"created_at\": \"2026-06-04T10:00:00Z\",\n        \"updated_at\": \"2026-06-04T10:00:00Z\"\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "",
+                  "const json = pm.response.json();",
+                  "if (json.success && json.data) {",
+                  "    pm.collectionVariables.set('user_id', json.data.id);",
+                  "    console.log('✅ user_id saved:', json.data.id);",
+                  "    console.log('profile_completed:', json.data.profile_completed);",
+                  "}",
+                  "",
+                  "pm.test('Has user data', () => {",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('email');",
+                  "    pm.expect(json.data).to.have.property('profile_completed');",
+                  "    pm.expect(json.data.roles).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update My Profile",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"full_name\": \"Nguyen Van A\",\n    \"phone_number\": \"0901234567\",\n    \"gender\": \"MALE\",\n    \"date_of_birth\": \"1995-03-15\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "me"]
+            },
+            "description": "Cập nhật thông tin profile. Sau khi điền đầy đủ tất cả field, `profile_completed` sẽ tự động chuyển thành `true`.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Validation**:\n- `full_name`: required, min 2, max 255 chars\n- `phone_number`: required, min 9, max 20 chars\n- `gender`: required, phải là MALE | FEMALE | OTHER\n- `date_of_birth`: required, format YYYY-MM-DD\n\n**Lỗi 409**: Số điện thoại đã được dùng bởi user khác"
+          },
+          "response": [
+            {
+              "name": "Success - Profile Updated",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n        \"email\": \"test@example.com\",\n        \"full_name\": \"Nguyen Van A\",\n        \"phone_number\": \"0901234567\",\n        \"gender\": \"MALE\",\n        \"date_of_birth\": \"1995-03-15T00:00:00Z\",\n        \"avatar_url\": \"\",\n        \"profile_completed\": true,\n        \"roles\": [\"TENANT\"],\n        \"created_at\": \"2026-06-04T10:00:00Z\",\n        \"updated_at\": \"2026-06-04T10:30:00Z\"\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Phone Already Used (409)",
+              "status": "Conflict",
+              "code": 409,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"phone number already in use\",\n    \"code\": \"CONFLICT\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Profile updated', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.full_name).to.eql('Nguyen Van A');",
+                  "    pm.expect(json.data.profile_completed).to.be.true;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get User By ID (Public)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "{{user_id}}"]
+            },
+            "description": "Lấy thông tin public của bất kỳ user nào theo ID.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Lưu ý**: Chỉ trả về thông tin public (không có phone, gender private)\n\n**Tips**: Chạy \"Get My Profile\" trước để lấy user_id tự động"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n        \"email\": \"test@example.com\",\n        \"full_name\": \"Nguyen Van A\",\n        \"avatar_url\": \"\",\n        \"profile_completed\": true,\n        \"roles\": [\"TENANT\"],\n        \"created_at\": \"2026-06-04T10:00:00Z\",\n        \"updated_at\": \"2026-06-04T10:30:00Z\"\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Not Found (404)",
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"user not found\",\n    \"code\": \"NOT_FOUND\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has user data', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('id');",
+                  "    pm.expect(json.data).to.have.property('roles');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Upload Avatar",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "avatar",
+                  "type": "file",
+                  "src": "",
+                  "description": "Chọn file ảnh (jpg/png/webp, tối đa 5MB)"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/avatar",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "avatar"]
+            },
+            "description": "Upload ảnh đại diện lên Cloudinary.\n\n**Yêu cầu auth**: ✅ Bearer Token\n**Content-Type**: `multipart/form-data` (Postman tự set)\n\n**Validation**:\n- Key: `avatar` (form field name)\n- Format: jpg | png | webp\n- Max size: 5MB (cấu hình trong CLOUDINARY_MAX_FILE_SIZE_MB)\n\n**Lưu ý**: Cần config Cloudinary credentials trong `.env` của user-service:\n```\nCLOUDINARY_CLOUD_NAME=...\nCLOUDINARY_API_KEY=...\nCLOUDINARY_API_SECRET=...\n```"
+          },
+          "response": [
+            {
+              "name": "Success - Avatar Uploaded",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n        \"email\": \"test@example.com\",\n        \"avatar_url\": \"https://res.cloudinary.com/your-cloud/image/upload/v1234/user-avatars/abc123.jpg\",\n        \"profile_completed\": true,\n        \"roles\": [\"TENANT\"]\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - File Too Large (413)",
+              "status": "Request Entity Too Large",
+              "code": 413,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"file too large\",\n    \"code\": \"FILE_TOO_LARGE\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - No File Provided (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"avatar file is required\",\n    \"code\": \"VALIDATION_ERROR\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Avatar URL returned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.data.avatar_url).to.not.be.empty;",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Avatar",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/users/avatar",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "users", "avatar"]
+            },
+            "description": "Xóa ảnh đại diện hiện tại. File cũng bị xóa khỏi Cloudinary.\n\n**Yêu cầu auth**: ✅ Bearer Token\n\n**Lỗi 400**: Nếu user chưa có avatar thì không thể xóa"
+          },
+          "response": [
+            {
+              "name": "Success",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"Avatar deleted successfully\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - No Avatar to Delete (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"no avatar to delete\",\n    \"code\": \"BAD_REQUEST\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Avatar deleted', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('deleted');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "User Service - Health (Direct)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8082/healthz",
+              "raw": "http://localhost:8082/healthz",
+              "host": ["http://localhost:8082"],
+              "path": ["healthz"]
+            },
+            "description": "Kiểm tra User Service trực tiếp (port 8082)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Service is user-service', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.service).to.eql('user-service');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🛡️ Admin - User Management",
+      "description": "Quản lý users dành cho Admin.\n\n**Yêu cầu auth**: ✅ Bearer Token (admin_access_token)\n**Yêu cầu role**: ADMIN\n\n**Flow**:\n1. Admin Login → nhận admin_access_token\n2. List Users → xem danh sách\n3. Get User → xem chi tiết 1 user\n4. Ban User → cấm user vi phạm\n5. Unban User → gỡ cấm",
+      "item": [
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users?page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Trang hiện tại (default: 1)"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Số item mỗi trang (default: 20, max: 100)"
+                },
+                {
+                  "key": "status",
+                  "value": "ACTIVE",
+                  "description": "Filter: ACTIVE hoặc BANNED",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Tìm theo email hoặc tên",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Lấy danh sách tất cả users với phân trang và filter.\n\n**Yêu cầu auth**: ✅ admin_access_token\n**Yêu cầu role**: ADMIN\n\n**Query params**:\n- `page`: số trang (default 1)\n- `limit`: số item/trang (default 20, max 100)\n- `status`: filter `ACTIVE` hoặc `BANNED`\n- `search`: tìm kiếm theo email hoặc tên"
+          },
+          "response": [
+            {
+              "name": "Success - Paginated Users",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"items\": [\n            {\n                \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n                \"email\": \"test@example.com\",\n                \"full_name\": \"Nguyen Van A\",\n                \"avatar_url\": \"\",\n                \"profile_completed\": true,\n                \"roles\": [\"TENANT\"],\n                \"status\": \"ACTIVE\",\n                \"created_at\": \"2026-06-04T10:00:00Z\"\n            }\n        ],\n        \"total\": 1,\n        \"page\": 1,\n        \"limit\": 20,\n        \"total_pages\": 1\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Paginated response', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('items');",
+                  "    pm.expect(json.data).to.have.property('total');",
+                  "    pm.expect(json.data).to.have.property('total_pages');",
+                  "    pm.expect(json.data.items).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users - Filter BANNED",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users?status=BANNED&page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users"],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "BANNED"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lấy danh sách users bị ban"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users - Search by Email/Name",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users?search=nguyen&page=1&limit=10",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users"],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "nguyen"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Tìm kiếm user theo tên hoặc email"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get User Detail (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{user_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users", "{{user_id}}"]
+            },
+            "description": "Lấy thông tin đầy đủ của 1 user theo ID (bao gồm cả status ban).\n\n**Yêu cầu auth**: ✅ admin_access_token\n**Yêu cầu role**: ADMIN\n\n**Tips**: Chạy \"Get My Profile\" để lấy user_id tự động vào biến"
+          },
+          "response": [
+            {
+              "name": "Success - Full User Detail",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"data\": {\n        \"id\": \"019e90b4-58fa-7153-93e7-72dc5048502a\",\n        \"email\": \"test@example.com\",\n        \"full_name\": \"Nguyen Van A\",\n        \"phone_number\": \"0901234567\",\n        \"gender\": \"MALE\",\n        \"date_of_birth\": \"1995-03-15T00:00:00Z\",\n        \"avatar_url\": \"\",\n        \"profile_completed\": true,\n        \"roles\": [\"TENANT\"],\n        \"status\": \"ACTIVE\",\n        \"created_at\": \"2026-06-04T10:00:00Z\",\n        \"updated_at\": \"2026-06-04T10:30:00Z\"\n    },\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Has status field (admin only)', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.data).to.have.property('status');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ban User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{user_id}}/ban",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users", "{{user_id}}", "ban"]
+            },
+            "description": "Ban (cấm) một user.\n\n**Yêu cầu auth**: ✅ admin_access_token\n**Yêu cầu role**: ADMIN\n\n**Bảo mật**: Admin không thể tự ban chính mình\n\n**Lỗi 400**: Nếu user đã bị ban trước đó\n\n**Tips**: Thay `{{user_id}}` bằng ID của user muốn ban"
+          },
+          "response": [
+            {
+              "name": "Success - User Banned",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"User banned successfully\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Already Banned (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"user is already banned\",\n    \"code\": \"BAD_REQUEST\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            },
+            {
+              "name": "Error - Self Ban (400)",
+              "status": "Bad Request",
+              "code": 400,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": false,\n    \"message\": \"cannot ban yourself\",\n    \"code\": \"BAD_REQUEST\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('User banned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('banned');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unban User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{admin_access_token}}"
+              }
+            ],
+            "url": {
+              "raw": "{{base_url}}/api/v1/admin/users/{{user_id}}/unban",
+              "host": ["{{base_url}}"],
+              "path": ["api", "v1", "admin", "users", "{{user_id}}", "unban"]
+            },
+            "description": "Gỡ cấm (unban) một user.\n\n**Yêu cầu auth**: ✅ admin_access_token\n**Yêu cầu role**: ADMIN\n\n**Tips**: Thay `{{user_id}}` bằng ID của user muốn gỡ ban"
+          },
+          "response": [
+            {
+              "name": "Success - User Unbanned",
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "body": "{\n    \"success\": true,\n    \"message\": \"User unbanned successfully\",\n    \"request_id\": \"019e90ad-db78-7844-9242-9268a7b3ccfb\"\n}"
+            }
+          ],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('User unbanned', () => {",
+                  "    const json = pm.response.json();",
+                  "    pm.expect(json.success).to.be.true;",
+                  "    pm.expect(json.message).to.include('unbanned');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+

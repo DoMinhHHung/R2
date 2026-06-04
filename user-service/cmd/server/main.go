@@ -51,7 +51,7 @@ func main() {
 	}
 
 	userRepo := repository.New(db)
-	userSvc := service.New(userRepo, store, appLog)
+	userSvc := service.New(userRepo, store, appLog, rdb)
 
 	userH := handler.NewUser(userSvc)
 	adminH := handler.NewAdmin(userSvc)

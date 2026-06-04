@@ -133,7 +133,7 @@ func (m *mockStorage) Delete(_ context.Context, _ string) error {
 
 func buildService(repo port.UserRepository, store port.Storage) *service.UserService {
 	log := logger.New("test")
-	return service.New(repo, store, log)
+	return service.New(repo, store, log, nil)
 }
 
 func makeActiveUser(id string) *entity.User {
@@ -194,7 +194,7 @@ func TestUpdateMyProfile_SetsProfileCompleted(t *testing.T) {
 func TestUpdateMyProfile_ProfileNotCompletedWhenMissingField(t *testing.T) {
 	repo := newMockRepo()
 	repo.users["u1"] = makeActiveUser("u1")
-	svc := buildService(repo, &mockStorage{})
+	// svc := buildService(repo, &mockStorage{})
 
 	// Thiếu phone_number
 	req := &dto.UpdateProfileRequest{

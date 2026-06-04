@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"log"
 	"time"
 
 	"github.com/DoMinhHHung/auth-service/internal/application/dto"
@@ -74,9 +75,10 @@ func (uc *SignupUseCase) InitiateSignup(ctx context.Context, req *dto.SignupRequ
 	}
 
 	go func() {
-		bgCtx := context.Background()
-		if err := uc.emailSvc.SendSignupOTP(bgCtx, req.Email, otp); err != nil {
-			// TODO: log error properly via injected logger
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := uc.emailSvc.SendSignupOTP(ctx, req.Email, otp); err != nil {
+			// TODO: inject logger adn log
 		}
 	}()
 
@@ -116,7 +118,12 @@ func (uc *SignupUseCase) VerifyOTP(ctx context.Context, req *dto.VerifyOTPReques
 
 	go func() {
 		bgCtx := context.Background()
-		_ = uc.userClient.CreateProfile(bgCtx, user.ID, user.Email, string(user.Role))
+		log.Printf("[signup] calling user-service CreateProfile for user_id=%s email=%s", user.ID, user.Email)
+		if err := uc.userClient.CreateProfile(bgCtx, user.ID, user.Email, string(user.Role)); err != nil {
+			log.Printf("[signup] ERROR: CreateProfile failed for user_id=%s: %v", user.ID, err)
+		} else {
+			log.Printf("[signup] CreateProfile succeeded for user_id=%s", user.ID)
+		}
 	}()
 
 	_ = uc.cacheRepo.DeleteSignupSession(ctx, req.Email)

@@ -64,7 +64,7 @@ func main() {
 	userClient := userclient.New(cfg.UserSvc.URL, cfg.UserSvc.InternalToken)
 
 	signupUC := usecase.NewSignupUseCase(authUserRepo, cacheRepo, hasher, otpGen, emailSvc, userClient, cfg.OTP)
-	loginUC := usecase.NewLoginUseCase(authUserRepo, sessionRepo, hasher, tokenSvc, cfg.JWT)
+	loginUC := usecase.NewLoginUseCase(authUserRepo, sessionRepo, hasher, tokenSvc, cfg.JWT, appLog)
 	tokenUC := usecase.NewTokenUseCase(authUserRepo, sessionRepo, tokenSvc, cfg.JWT)
 	passwordUC := usecase.NewPasswordUseCase(authUserRepo, sessionRepo, cacheRepo, hasher, otpGen, emailSvc)
 	sessionUC := usecase.NewSessionUseCase(sessionRepo)

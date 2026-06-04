@@ -37,7 +37,7 @@ routes:
     version: "v1"
 
 rbac_rules:
-  - service: "user"
+  - service: "auth"
     method: "POST"
     path: "/api/v1/auth/*"
     roles: ["*"]
@@ -45,7 +45,7 @@ rbac_rules:
   - service: "user"
     method: "*"
     path: "/api/v1/users/*"
-    roles: ["admin", "user"]
+    roles: ["ADMIN", "TENANT", "LANDLORD"] 
 
   - service: "property"
     method: "GET"
@@ -55,34 +55,34 @@ rbac_rules:
   - service: "property"
     method: "POST"
     path: "/api/v1/properties/*"
-    roles: ["landlord", "admin"]
+    roles: ["LANDLORD", "ADMIN"]
 
   - service: "property"
     method: "PUT"
     path: "/api/v1/properties/*"
-    roles: ["landlord", "admin"]
+    roles: ["LANDLORD", "ADMIN"]
 
   - service: "property"
     method: "PATCH"
     path: "/api/v1/properties/*"
-    roles: ["landlord", "admin"]
+    roles: ["LANDLORD", "ADMIN"]
 
   - service: "property"
     method: "DELETE"
     path: "/api/v1/properties/*"
-    roles: ["admin"]
+    roles: ["ADMIN"]
 
   - service: "booking"
     method: "*"
     path: "/api/v1/bookings/*"
-    roles: ["user", "landlord", "admin"]
+    roles: ["TENANT", "LANDLORD", "ADMIN"]
 
   - service: "payment"
     method: "*"
     path: "/api/v1/payments/*"
-    roles: ["user", "landlord", "admin"]
+    roles: ["TENANT", "LANDLORD", "ADMIN"]
 
   - service: "notification"
     method: "*"
     path: "/api/v1/notifications/*"
-    roles: ["user", "landlord", "admin"]
+    roles: ["TENANT", "LANDLORD", "ADMIN"]

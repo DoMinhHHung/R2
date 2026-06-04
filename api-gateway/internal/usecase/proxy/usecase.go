@@ -73,6 +73,11 @@ func (u *UseCase) initProxies() {
 		ExpectContinueTimeout: 1 * time.Second,
 	}
 
+	minRequests := u.cfg.CB.MaxRequests
+	if minRequests < 10 {
+		minRequests = 10
+	}
+
 	seen := map[string]bool{}
 	for _, route := range u.routes {
 		if seen[route.ServiceURL] {
@@ -86,13 +91,14 @@ func (u *UseCase) initProxies() {
 		}
 
 		svcName := serviceNameFromURL(route.ServiceURL)
+		min := minRequests
 		cbSettings := gobreaker.Settings{
 			Name:        svcName,
 			MaxRequests: u.cfg.CB.MaxRequests,
 			Interval:    time.Duration(u.cfg.CB.IntervalSecs) * time.Second,
 			Timeout:     time.Duration(u.cfg.CB.TimeoutSecs) * time.Second,
 			ReadyToTrip: func(counts gobreaker.Counts) bool {
-				if counts.Requests < 3 {
+				if counts.Requests < uint32(min) {
 					return false
 				}
 				ratio := float64(counts.TotalFailures) / float64(counts.Requests)
@@ -100,16 +106,16 @@ func (u *UseCase) initProxies() {
 			},
 		}
 
-		proxy := httputil.NewSingleHostReverseProxy(target)
-		proxy.Transport = transport
-		proxy.Director = buildDirector(target)
-		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		rp := httputil.NewSingleHostReverseProxy(target)
+		rp.Transport = transport
+		rp.Director = buildDirector(target)
+		rp.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			http.Error(w, `{"error":"upstream_unavailable"}`, http.StatusBadGateway)
 		}
 
 		u.services[route.ServiceURL] = &ServiceProxy{
 			target:  target,
-			proxy:   proxy,
+			proxy:   rp,
 			breaker: gobreaker.NewCircuitBreaker(cbSettings),
 		}
 	}
@@ -126,12 +132,18 @@ func (u *UseCase) Resolve(path string) (*entity.Route, bool) {
 
 func NewWithRules(cfg config.Config, routeRules []config.RouteRule) *UseCase {
 	serviceURLFor := map[string]string{
-		"auth":         cfg.Services.Auth,
-		"user":         cfg.Services.User,
-		"property":     cfg.Services.Property,
-		"booking":      cfg.Services.Booking,
-		"payment":      cfg.Services.Payment,
-		"notification": cfg.Services.Notification,
+		"auth":          cfg.Services.Auth,
+		"user":          cfg.Services.User,
+		"users":         cfg.Services.User,
+		"property":      cfg.Services.Property,
+		"properties":    cfg.Services.Property,
+		"propertys":     cfg.Services.Property,
+		"booking":       cfg.Services.Booking,
+		"bookings":      cfg.Services.Booking,
+		"payment":       cfg.Services.Payment,
+		"payments":      cfg.Services.Payment,
+		"notification":  cfg.Services.Notification,
+		"notifications": cfg.Services.Notification,
 	}
 
 	routes := make([]entity.Route, 0, len(routeRules))
@@ -170,54 +182,52 @@ func (u *UseCase) Forward(ctx context.Context, route *entity.Route, w http.Respo
 		maxAttempts = 1
 	}
 
-	var lastRec *responseRecorder
-	var lastErr error
+	var finalRec *responseRecorder
 
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-		if attempt > 0 {
-			wait := jitter(u.cfg.Retry.WaitMinMS, u.cfg.Retry.WaitMaxMS)
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(wait):
+	_, err := sp.breaker.Execute(func() (interface{}, error) {
+		for attempt := 0; attempt < maxAttempts; attempt++ {
+			if attempt > 0 {
+				wait := jitter(u.cfg.Retry.WaitMinMS, u.cfg.Retry.WaitMaxMS)
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				case <-time.After(wait):
+				}
 			}
-		}
 
-		if requestBody != nil {
-			r.Body = io.NopCloser(bytes.NewReader(requestBody))
-		} else {
-			r.Body = http.NoBody
-		}
+			if requestBody != nil {
+				r.Body = io.NopCloser(bytes.NewReader(requestBody))
+			} else {
+				r.Body = http.NoBody
+			}
 
-		rec := newResponseRecorder()
-
-		_, err := sp.breaker.Execute(func() (interface{}, error) {
+			rec := newResponseRecorder()
 			sp.proxy.ServeHTTP(rec, r)
-			if rec.statusCode >= 500 {
-				return nil, fmt.Errorf("upstream error: %d", rec.statusCode)
+			finalRec = rec
+
+			if rec.statusCode < 500 {
+				return nil, nil
 			}
-			return nil, nil
-		})
 
-		if err == nil {
-			return rec.FlushTo(w)
+			if attempt < maxAttempts-1 {
+				continue
+			}
+			return nil, fmt.Errorf("upstream error after %d attempt(s): status %d", maxAttempts, rec.statusCode)
 		}
+		return nil, nil
+	})
 
-		if err == gobreaker.ErrOpenState {
-			http.Error(w, `{"error":"circuit_open"}`, http.StatusServiceUnavailable)
-			return err
-		}
-
-		lastRec = rec
-		lastErr = err
+	if err == gobreaker.ErrOpenState {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"success":false,"message":"service temporarily unavailable, please try again later","code":"SERVICE_UNAVAILABLE"}`))
+		return err
 	}
 
-	if lastRec != nil {
-		if flushErr := lastRec.FlushTo(w); flushErr != nil {
-			return flushErr
-		}
+	if finalRec != nil {
+		return finalRec.FlushTo(w)
 	}
-	return lastErr
+	return err
 }
 
 func buildDirector(target *url.URL) func(*http.Request) {
